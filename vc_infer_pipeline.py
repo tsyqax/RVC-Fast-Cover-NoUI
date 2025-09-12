@@ -336,7 +336,7 @@ class VC(object):
         
         f0_mel = f0_mel.astype(np.float64)
 
-return f0_mel, None
+        return f0_mel, None
     def vc(
         self,
         model: nn.Module,
