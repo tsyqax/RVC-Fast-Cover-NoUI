@@ -2,7 +2,6 @@ from functools import lru_cache
 from time import time as ttime
 
 import torch.nn as nn
-from typing import Any
 import faiss
 import librosa
 import numpy as np
@@ -294,27 +293,13 @@ class VC(object):
                 )
             f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
         elif f0_method == "fcpe":
-            if not hasattr(self, "model_fcpe"):
-                from fcpe import FCPE
-                
-                self.model_fcpe = FCPE(
-                    os.path.join(BASE_DIR, 'rvc_models', 'fcpe.pt'), is_half=self.is_half, device=self.device
-                )
-            
-            # 1. NumPy 배열을 PyTorch 텐서로 변환하고 올바른 장치로 보냅니다.
-            if isinstance(x, torch.Tensor):
-                x = x.cpu().numpy()
-            x = librosa.to_mono(x)
-            
-            x = torch.from_numpy(x).to(self.device)
-        
-            if self.is_half:
-                x = x.half()
-            else:
-                x = x.float()
-        
-            # 3. fcpe 모델에 변환된 텐서를 전달합니다.
-            f0 = self.model_fcpe.infer_from_audio(x, thred=0.006)
+             if hasattr(self, "model_fcpe") == False:
+                 from fcpe import FCPE
+
+                 self.model_fcpe = FCPE(
+                     os.path.join(BASE_DIR, 'rvc_models', 'fcpe.pt'), is_half=self.is_half, device=self.device
+                 )
+             f0 = self.model_fcpe.infer_from_audio(x, thred=0.006) # Example threshold, adjust as needed
 
         f0 *= pow(2, f0_up_key / 12)
 
