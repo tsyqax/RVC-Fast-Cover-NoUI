@@ -1,5 +1,4 @@
-if self.is_half:
-            x = x.float()from functools import lru_cache
+from functools import lru_cache
 from time import time as ttime
 
 import torch.nn as nn
