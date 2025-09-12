@@ -228,9 +228,9 @@ if __name__ == '__main__':
     input_path = os.path.join(input_path0, f'{song_name}.mp3')
 
 
-    if sep_mode is True:
-      sep_song(input_path, song_filename, song_id)
-    elif exist_check is False:
+    if sep_mode is True and exist_check is True:
+      print('NO SEPERATE..')
+    elif sep_mode is True and exist_check is False:
       sep_song(input_path, song_filename, song_id)
     else:
       print('NO SEPERATE..')
