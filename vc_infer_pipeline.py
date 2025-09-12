@@ -490,7 +490,15 @@ class VC(object):
         t = None
         t1 = ttime()
         audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
-        pitch, pitchf = pitch, pitchf = self.get_f0(audio,f0_method,f0_up_key, filter_radius, crepe_hop_length)
+        pitch, pitchf = self.get_f0(
+            input_audio_path,
+            audio, # 이 변수가 'x'에 해당합니다.
+            p_len, # 이 변수는 위에서 정의되어야 합니다.
+            f0_up_key,
+            f0_method,
+            filter_radius,
+            crepe_hop_length
+        )
     
         if pitch is not None and pitch.ndim > 0:
             p_len = pitch.shape[0]
