@@ -4,7 +4,7 @@ pydub
 fairseq
 scipy
 faiss-gpu
-parselmouth
+parselmouth>=1.2
 pyworld
 torchcrepe
 torchfcpe
