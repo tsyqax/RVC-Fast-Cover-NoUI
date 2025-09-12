@@ -148,11 +148,10 @@ def merge_song(song_name, song_id, rvc_name, vocal_vol, inst_vol, sep_mode):
     if not mixed_audio:
         return
     
-    output_dir = 'output'
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(os.getcwd(), 'output', song_id, exist_ok=True)
     
     output_filename = f"{song_name} ({rvc_name}).mp3"
-    output_path = os.path.join(output_dir, song_id, output_filename)
+    output_path = os.path.join(os.getcwd(), 'output', song_id, output_filename)
 
     mixed_audio.export(output_path, format="mp3")
 
