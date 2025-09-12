@@ -11,6 +11,7 @@ def dl_model(link, model_name, dir_name):
                 f.write(chunk)
 
 os.makedirs('uvrs', exist_ok=True)
+os.makedirs('infers', exist_ok=True)
 
 print('MODEL...')
 #dl_model('https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/MDX23C_D1581.ckpt', 'MDX23C_D1581.ckpt', '/content/DIR/uvrs')
