@@ -113,7 +113,7 @@ class VC(object):
         
         # Only allow 'rmvpe' or 'fcpe' f0 methods
         if f0_method == "rmvpe":
-            if not hasattr(self, "model_rmvpe"):
+            if self.model_rmvpe is None:
                 from rmvpe import RMVPE
                 self.model_rmvpe = RMVPE(
                     os.path.join(BASE_DIR, 'DIR', 'infers', 'rmvpe.pt'), is_half=self.is_half, device=self.device
