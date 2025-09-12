@@ -117,11 +117,11 @@ def worker(q_in, q_out, model_paths, config_dict):
 
         while True:
             chunk_data = q_in.get()
-            if chunk_data is None: # None is a signal to stop
+            if chunk_data is None:  # None은 종료 신호
                 break
 
-            (audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, 
-             if_f0, filter_radius, rms_mix_rate, protect, crepe_hop_length) = chunk_data
+            (audio_chunk, input_path, times, pitch_change, f0_method, index_path, 
+             index_rate, if_f0, filter_radius, rms_mix_rate, protect, crepe_hop_length) = chunk_data
             
             # vc.pipeline 호출 시 필요한 인자들을 모두 전달합니다.
             result = vc.pipeline(
@@ -133,8 +133,11 @@ def worker(q_in, q_out, model_paths, config_dict):
             
         print("Worker process finished.")
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"Worker process failed with an error: {e}")
         q_out.put(e)
+
 
 def load_hubert(device, is_half, model_path):
     models, saved_cfg, task = checkpoint_utils.load_model_ensemble_and_task([model_path], suffix='', )
@@ -191,32 +194,29 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
     times = [0, 0, 0]
     if_f0 = cpt.get('f0', 1)
 
-    # 1분을 기준으로 병렬 또는 순차 처리 선택
     if len(audio) / 16000 > 60:
         print("Audio is longer than 1 minute. Starting parallel processing.")
         
-        # 오디오를 병렬 처리를 위한 청크로 분할
         num_chunks = max(2, int(len(audio) / 16000 / 60))
         chunk_length = len(audio) // num_chunks
         chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_chunks)]
         if len(audio) % num_chunks != 0:
             chunks[-1] = np.concatenate((chunks[-1], audio[num_chunks * chunk_length:]))
 
-        # 멀티프로세싱을 위한 큐 생성
         q_in = mp.Queue()
         q_out = mp.Queue()
         
-        # 모델 경로와 설정 정보
+        # NOTE: 모델 객체를 직접 전달하지 않습니다.
+        # 대신, 모델 경로를 워커 프로세스에 전달하여 각 프로세스가 모델을 로드하게 합니다.
         model_paths = {
-            'hubert': 'your_hubert_model_path', # 실제 경로로 변경해야 합니다.
-            'rvc': 'your_rvc_model_path' # 실제 경로로 변경해야 합니다.
+            'hubert': 'your_hubert_model_path',  # 여기에 실제 허브ert 모델 파일 경로를 입력하세요.
+            'rvc': 'your_rvc_model_path'        # 여기에 실제 RVC 모델 파일 경로를 입력하세요.
         }
         config_dict = {
             'device': vc.device,
             'is_half': vc.is_half
         }
         
-        # 워커 프로세스 시작
         processes = [
             mp.Process(target=worker, args=(q_in, q_out, model_paths, config_dict))
             for _ in range(num_chunks)
@@ -224,37 +224,31 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
         for p in processes:
             p.start()
         
-        # 입력 큐에 청크 데이터 넣기
         for chunk in chunks:
             q_in.put((chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, 
                       if_f0, filter_radius, rms_mix_rate, protect, crepe_hop_length))
 
-        # 종료 신호 보내기
         for _ in range(num_chunks):
             q_in.put(None)
             
-        # 결과 수집
         processed_chunks = []
         for _ in range(num_chunks):
             result = q_out.get()
             if isinstance(result, Exception):
-                raise result # 워커 프로세스에서 발생한 오류를 전파
+                raise result
             processed_chunks.append(result)
 
-        # 프로세스 종료 대기
         for p in processes:
             p.join()
         
-        # 청크들을 하나로 합치고, 넘파이 배열로 변환
         audio_opt = np.concatenate(processed_chunks)
 
     else:
-        print("Audio is shorter than 1 minute. Processing sequentially.")
+        # 1분 미만 오디오는 기존 방식대로 처리
         audio_opt = vc.pipeline(
             hubert_model, net_g, 0, audio, input_path, times, pitch_change, f0_method,
             index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version,
             protect, crepe_hop_length
         )
 
-    # 최종 오디오 파일 저장
     wavfile.write(output_path, tgt_sr, audio_opt)
