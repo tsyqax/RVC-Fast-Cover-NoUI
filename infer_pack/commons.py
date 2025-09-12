@@ -126,7 +126,15 @@ def shift_1d(x):
 def sequence_mask(length, max_length=None):
     if max_length is None:
         max_length = length.max()
+        
+    # Check if length is a scalar tensor and add a dimension if needed.
+    # This prevents the IndexError when unsqueezing.
+    if length.dim() == 0:
+        length = length.unsqueeze(0)
+        
     x = torch.arange(max_length, dtype=length.dtype, device=length.device)
+    
+    # Correctly broadcast the tensors to create the mask.
     return x.unsqueeze(0) < length.unsqueeze(1)
 
 
