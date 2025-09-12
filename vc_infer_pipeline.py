@@ -489,7 +489,18 @@ class VC(object):
         t = None
         t1 = ttime()
         audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
-        p_len = audio_pad.shape[0] // self.window
+        pitch, pitchf = self.get_f0(
+            audio,
+            f0_method,
+            crepe_hop_length,
+            **kwargs
+        )
+    
+        if pitch is not None and pitch.ndim > 0:
+            p_len = pitch.shape[0]
+        else:
+            # 피치 데이터가 없거나 유효하지 않을 경우를 대비하여 0으로 설정
+            p_len = 0
         inp_f0 = None
         if hasattr(f0_file, "name") == True:
             try:
