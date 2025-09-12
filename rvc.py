@@ -149,16 +149,19 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
     times = [0, 0, 0]
     if_f0 = cpt.get('f0', 1)
 
+    # 모델 객체를 공유 메모리에 배치
     hubert_model.share_memory()
     net_g.share_memory()
 
     if len(audio) / 16000 > 60:
         num_chunks = cpu_count()
         chunk_length = len(audio) // num_chunks
-        chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_chunks)]
+        
+        # NumPy 배열을 PyTorch 텐서로 변환
+        chunks = [torch.from_numpy(audio[i * chunk_length:(i + 1) * chunk_length]) for i in range(num_chunks)]
+        
         if len(audio) % num_chunks != 0:
-            # Convert numpy array to torch tensor before concatenation
-            chunks[-1] = torch.cat((torch.from_numpy(chunks[-1]), torch.from_numpy(audio[num_chunks * chunk_length:])))
+            chunks[-1] = torch.cat((chunks[-1], torch.from_numpy(audio[num_chunks * chunk_length:])))
         
         args_list = [
             (
@@ -188,8 +191,9 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
         
         audio_opt = torch.cat(processed_chunks)
     else:
-        # Convert audio to torch tensor for pipeline if it's not a tensor already
+        # 텐서로 변환하여 파이프라인에 전달
         audio = torch.from_numpy(audio) if isinstance(audio, np.ndarray) else audio
         audio_opt = vc.pipeline(hubert_model, net_g, 0, audio, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
 
+    # wavfile.write 함수가 넘파이 배열을 기대하므로 다시 변환
     wavfile.write(output_path, tgt_sr, audio_opt.numpy())
