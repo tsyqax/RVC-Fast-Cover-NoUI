@@ -50,7 +50,7 @@ Github: SociallyIneptWeeb/AICoverGen 및 Colab: CoverGen_NO_UI_v2 에서 많은 
 This was made for Colab.  
 Modifications may be necessary for local and Windows environments.
 
-**[Colab Link](https://colab.research.google.com/drive/1-R2JDb8pS3EBJATKpNx2TvuW3dAZwDiY)**   
+**[**   
 This is also under development. I will create an English version after the main project is completed.
 
 #### Fast Performance (Expected)  
