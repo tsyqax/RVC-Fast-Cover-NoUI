@@ -99,7 +99,7 @@ class Config:
 def process_chunk(args):
     hubert_model, net_g, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, vc = args
     return vc.pipeline(hubert_model, net_g, 0, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
-
+    
 def load_hubert(device, is_half, model_path):
     models, saved_cfg, task = checkpoint_utils.load_model_ensemble_and_task([model_path], suffix='', )
     hubert = models[0]
@@ -148,19 +148,19 @@ def get_vc(device, is_half, config, model_path):
 
 def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model):
     if f0_method not in ['rmvpe', 'fcpe']:
-        print(f"Warning: f0_method '{f0_method}' is not supported. Using 'rmvpe' instead.")
         f0_method = 'rmvpe'
     
     audio = load_audio(input_path, 16000)
     times = [0, 0, 0]
     if_f0 = cpt.get('f0', 1)
 
+    # 모델 객체를 공유 메모리에 배치
     hubert_model.share_memory()
     net_g.share_memory()
 
     if len(audio) / 16000 > 60:
         print("Audio is longer than 1 minute. Splitting and processing in parallel.")
-        num_chunks = cpu_count()
+        num_chunks = mp.cpu_count()
         chunk_length = len(audio) // num_chunks
         
         chunks = [torch.from_numpy(audio[i * chunk_length:(i + 1) * chunk_length]) for i in range(num_chunks)]
@@ -168,12 +168,55 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
         if len(audio) % num_chunks != 0:
             chunks[-1] = torch.cat((chunks[-1], torch.from_numpy(audio[num_chunks * chunk_length:])))
         
-        args_list = [(hubert_model, net_g, chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, vc) for chunk in chunks]
+        args_list = [
+            (
+                hubert_model, 
+                net_g, 
+                chunk, 
+                input_path, 
+                times, 
+                pitch_change, 
+                f0_method, 
+                index_path, 
+                index_rate, 
+                if_f0, 
+                filter_radius, 
+                tgt_sr, 
+                rms_mix_rate, 
+                version, 
+                protect, 
+                crepe_hop_length, 
+                vc
+            )
+            for chunk in chunks
+        ]
         
-        with Pool(cpu_count()) as p:
-            processed_chunks = p.map(process_chunk, args_list)
+        # Pool 대신 Process를 수동으로 사용
+        processes = []
+        result_queue = mp.Queue()
+        
+        def worker(args, queue):
+            try:
+                result = process_chunk(args)
+                queue.put(result)
+            except Exception as e:
+                queue.put(e)
+
+        for args in args_list:
+            p = mp.Process(target=worker, args=(args, result_queue))
+            processes.append(p)
+            p.start()
+        
+        processed_chunks = []
+        for p in processes:
+            result = result_queue.get()
+            if isinstance(result, Exception):
+                raise result  # 예외 발생 시 전파
+            processed_chunks.append(result)
+            p.join()
         
         audio_opt = torch.cat(processed_chunks)
+
     else:
         audio = torch.from_numpy(audio) if isinstance(audio, np.ndarray) else audio
         audio_opt = vc.pipeline(hubert_model, net_g, 0, audio, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
