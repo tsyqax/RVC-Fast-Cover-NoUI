@@ -97,7 +97,15 @@ class Config:
 def process_chunk(args):
     hubert_model, net_g, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, vc = args
     return vc.pipeline(hubert_model, net_g, 0, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
-    
+
+def worker(args, queue):
+    try:
+        hubert_model, net_g, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, vc = args
+        result = vc.pipeline(hubert_model, net_g, 0, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
+        queue.put(result)
+    except Exception as e:
+        queue.put(e)
+        
 def load_hubert(device, is_half, model_path):
     models, saved_cfg, task = checkpoint_utils.load_model_ensemble_and_task([model_path], suffix='', )
     hubert = models[0]
