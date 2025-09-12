@@ -489,7 +489,7 @@ class VC(object):
         t = None
         t1 = ttime()
         audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
-       pitch, pitchf = self.get_f0(audio,f0_method, crepe_hop_length, **kwargs)
+        pitch, pitchf = self.get_f0(audio,f0_method, crepe_hop_length, **kwargs)
     
         if pitch is not None and pitch.ndim > 0:
             p_len = pitch.shape[0]
