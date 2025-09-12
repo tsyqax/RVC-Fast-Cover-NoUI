@@ -103,7 +103,7 @@ class Config:
 
 def worker(q_in, q_out, model_paths, config_dict):
     """
-    워커 프로세스.
+    Worker process 워커 프로세스.
     모델 객체 대신 경로를 받아 직접 로드하여 독립적으로 작동합니다.
     """
     try:
@@ -111,15 +111,13 @@ def worker(q_in, q_out, model_paths, config_dict):
         is_half = config_dict['is_half']
         hubert_model_path = model_paths['hubert']
         rvc_model_path = model_paths['rvc']
-        
-        # NOTE: 모델 객체를 직접 전달받지 않고, 각 워커 프로세스가 독립적으로 모델을 로드합니다.
-        # 이 방식은 메모리를 더 사용하지만, 멀티프로세싱 오류를 방지합니다.
+
         hubert_model = load_hubert(device, is_half, hubert_model_path)
         cpt, version, net_g, tgt_sr, vc = get_vc(device, is_half, Config(device, is_half), rvc_model_path)
 
         while True:
             chunk_data = q_in.get()
-            if chunk_data is None:  # None은 종료 신호
+            if chunk_data is None:
                 break
             
             (audio_chunk, input_path, times, pitch_change, f0_method, index_path, 
@@ -130,7 +128,7 @@ def worker(q_in, q_out, model_paths, config_dict):
                 f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr,
                 0, rms_mix_rate, version, protect, crepe_hop_length
             )
-            q_out.put(result)
+            q_out.put((result, index))
             
         print("Worker process finished.")
     except Exception as e:
@@ -223,24 +221,23 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
         for p in processes:
             p.start()
         
-        for chunk in chunks:
+        for i, chunk in enumerate(chunks):
             q_in.put((chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, 
-                      if_f0, filter_radius, rms_mix_rate, protect, crepe_hop_length))
+                      if_f0, filter_radius, rms_mix_rate, protect, crepe_hop_length, i))
 
         for _ in range(num_chunks):
             q_in.put(None)
             
         processed_chunks = []
+        processed_chunks_with_index = []
         for _ in range(num_chunks):
-            result = q_out.get()
+            result, index = q_out.get()
             if isinstance(result, Exception):
                 raise result
-            processed_chunks.append(result)
-
-        for p in processes:
-            p.join()
+            processed_chunks_with_index.append((index, result))
+        processed_chunks_with_index.sort(key=lambda x: x[0])
         
-        audio_opt = np.concatenate(processed_chunks)
+        audio_opt = np.concatenate([result for index, result in processed_chunks_with_index])
 
     else:
         # 1분 미만 오디오는 기존 방식대로 처리 (모델 객체를 인자로 사용)
