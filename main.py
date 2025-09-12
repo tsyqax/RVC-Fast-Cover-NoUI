@@ -183,6 +183,10 @@ if __name__ == '__main__':
     keep_path = os.path.join(os.getcwd(), 'keep')
     os.makedirs(keep_path, exist_ok=True)
 
+    input_dirdir = os.path.join(os.getcwd(), 'input')
+    os.makedirs(input_dirdir, exist_ok=True)
+
+
     # input (copy)
     if 'https://' in args.input or 'http://' in args.input: # yt
       ydl_opts = {
