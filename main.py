@@ -59,7 +59,7 @@ def sep_song(song_path, song_filename, song_id):
     vocalis = os.path.join(sep_path, 'vocals.mp3')
     pitch_dir = os.path.join(os.getcwd(), 'pitch')
     os.makedirs(pitch_dir, exist_ok=True)
-    keep_dir = os.path.join(os.getcwd(), song_id)
+    keep_dir = os.path.join(os.getcwd(), 'keep', song_id)
     os.makedirs(keep_dir, exist_ok=True)
     subprocess.run(['cp', vocalis, os.path.join(keep_dir, 'sep_vocal.mp3')], check=True)
     subprocess.run(['cp', instis,  os.path.join(keep_dir, 'sep_inst.mp3')], check=True)
