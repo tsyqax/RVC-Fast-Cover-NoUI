@@ -301,7 +301,8 @@ class VC(object):
             )
             
             x = torch.from_numpy(x)
-            
+            if isinstance(x, torch.Tensor):
+              x = x.cpu().numpy()
             if self.is_half:
                 x = x.float()
         
