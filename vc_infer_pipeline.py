@@ -81,6 +81,7 @@ class VC(object):
         self.t_center = self.sr * self.x_center
         self.t_max = self.sr * self.x_max
         self.device = config.device
+        self.model_rmvpe = None
         
     def get_optimal_torch_device(self, index: int = 0) -> torch.device:
         if torch.cuda.is_available():
@@ -171,7 +172,6 @@ class VC(object):
         index_rate: float,
         version: str,
         protect: float,
-        self.model_rmvpe = None 
     ):
         t0 = ttime()
         feats = torch.from_numpy(audio0)
