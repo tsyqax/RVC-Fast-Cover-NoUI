@@ -300,6 +300,8 @@ class VC(object):
                  self.model_fcpe = FCPE(
                      os.path.join(BASE_DIR, 'rvc_models', 'fcpe.pt'), is_half=self.is_half, device=self.device
                  )
+            if self.is_half:
+             x = x.float()
              f0 = self.model_fcpe.infer_from_audio(x, thred=0.006) # Example threshold, adjust as needed
 
         f0 *= pow(2, f0_up_key / 12)
@@ -354,20 +356,20 @@ class VC(object):
         assert feats.dim() == 1, feats.dim()
         feats = feats.view(1, -1)
         padding_mask = torch.BoolTensor(feats.shape).to(self.device).fill_(False)
-
+    
         inputs = {
             "source": feats.to(self.device),
             "padding_mask": padding_mask,
             "output_layer": 9 if version == "v1" else 12,
         }
-
+    
         with torch.no_grad():
             logits = model.extract_features(**inputs)
             feats = model.final_proj(logits[0]) if version == "v1" else logits[0]
-
+        
         if protect < 0.5 and pitch is not None and pitchf is not None:
             feats0 = feats.clone()
-
+        
         if (
             isinstance(index, type(None)) == False
             and isinstance(big_npy, type(None)) == False
@@ -386,18 +388,18 @@ class VC(object):
                 torch.from_numpy(npy).unsqueeze(0).to(self.device) * index_rate
                 + (1 - index_rate) * feats
             )
-
+    
         feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
         if protect < 0.5 and pitch is not None and pitchf is not None:
             feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(
                 0, 2, 1
             )
-
+        
         p_len = audio0.shape[0] // 320 # p_len을 여기서 정의
-
+        
         t1 = ttime()
         times[0] += t1 - t0
-
+        
         with torch.no_grad():
             if pitch is not None and pitchf is not None:
                 audio1 = (
@@ -410,16 +412,16 @@ class VC(object):
                 audio1 = (
                     (net_g.infer(feats, p_len, sid)[0][0, 0]).data.cpu().float().numpy()
                 )
-
+        
         del feats, padding_mask
-
+        
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-
+        
         t2 = ttime()
         times[2] += t2 - t1
         return audio1
-
+    
     def pipeline(
         self,
         model,
