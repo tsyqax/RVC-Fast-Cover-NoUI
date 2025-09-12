@@ -74,7 +74,7 @@ def sep_song(song_path, song_name, song_id):
   else:
     return 0
 
-def pitch_song(pitch_vocal_path, pitch_other_path, pitch_vocal, pitch_other, song_id, song_name):
+def pitch_song(pitch_vocal_path, pitch_other_path, pitch_vocal, pitch_other, song_id, song_name, sep_mode):
   try:
     # 삼겹살 = 반키 * 1.2 # (samgyeopsal = semiton * 1.2)
     # 10 삼겹살 = 1 옥타브 # (10 samgyeopsal = 1 octarve)
@@ -84,18 +84,18 @@ def pitch_song(pitch_vocal_path, pitch_other_path, pitch_vocal, pitch_other, son
       pitch_command = ["ffmpeg", "-i", input_file, "-filter:a", filter_string, "-y", output_file]
       subprocess.run(pitch_command, check=True)
       os.remove(input_file)
-
+    
     if pitch_vocal != 0:
       pitch_vocal = 2 ** (pitch_vocal / 10)
       change_pitch(input_file=pitch_vocal_path, output_file='to_rvc/rvc_vocal.mp3', pitch_factor=pitch_vocal)
     else:
       subprocess.run(['mv', pitch_vocal_path, 'to_rvc/rvc_vocal.mp3'], check=True)
-
-    if pitch_other != 0:
-      pitch_other = 2 ** (pitch_other / 10)
-      change_pitch(input_file=pitch_other_path, output_file='to_merge/mer_inst.mp3', pitch_factor=pitch_other)
-    else:
-      subprocess.run(['mv', pitch_other_path, 'to_merge/mer_inst.mp3'], check=True)
+    if sep_mode is True:
+      if pitch_other != 0:
+        pitch_other = 2 ** (pitch_other / 10)
+        change_pitch(input_file=pitch_other_path, output_file='to_merge/mer_inst.mp3', pitch_factor=pitch_other)
+      else:
+        subprocess.run(['mv', pitch_other_path, 'to_merge/mer_inst.mp3'], check=True)
     print("PITCH..!")
 
   except Exception as e:
@@ -114,7 +114,7 @@ def rvc_song(rvc_index_path, rvc_model_path, index_rate, input_path, output_path
 
 
 
-def merge_song(song_name, song_id, rvc_name, vocal_vol, inst_vol):
+def merge_song(song_name, song_id, rvc_name, vocal_vol, inst_vol, sep_mode):
     vocal_path = os.path.join(os.getcwd(), 'to_merge', 'mer_vocal.mp3')
     inst_path = os.path.join(os.getcwd(), 'to_merge', 'mer_inst.mp3')
 
@@ -128,7 +128,7 @@ def merge_song(song_name, song_id, rvc_name, vocal_vol, inst_vol):
         except FileNotFoundError:
             pass
 
-    if inst_vol > 0:
+    if inst_vol > 0 and sep_mode is True:
         try:
             inst = AudioSegment.from_file(inst_path)
             db_gain = 20 * math.log10(inst_vol / 100)
@@ -237,10 +237,14 @@ if __name__ == '__main__':
       if exist_check is True: # to pitch move
         os.makedirs(pitch_path0, exist_ok=True)
         subprocess.run(['cp', f'keep/{song_id}/sep_vocal.mp3', 'pitch/pitch_vocal.mp3'], check=True)
+        subprocess.run(['cp', f'keep/{song_id}/sep_inst.mp3', 'pitch/pitch_inst.mp3'], check=True)
 
       pitch_path1 = os.path.join(pitch_path0, f'pitch_vocal.mp3') # vocal
-      pitch_path2 = os.path.join(pitch_path0, f'pitch_inst.mp3') # inst
-      pitch_song(pitch_path1, pitch_path2, pitch_vocal, pitch_other, song_id, song_name)
+      if sep_mode is False:
+        pitch_path2 = pitch_path1
+      else:
+        pitch_path2 = os.path.join(pitch_path0, f'pitch_inst.mp3') # inst
+      pitch_song(pitch_path1, pitch_path2, pitch_vocal, pitch_other, song_id, song_name, sep_mode)
 
     rvc_index_path = ''
     rvc_vocal_path = ''
@@ -266,6 +270,6 @@ if __name__ == '__main__':
 
     rvc_song(rvc_index_path, rvc_model_path, args.index_rate, rvc_input_path, rvc_output_path, 0, args.rvc_method, 3, args.rms_rate, 0.33, 128)
     
-    merge_song(song_name, song_id, args.rvc_name, vocal_sound, other_sound)
+    merge_song(song_name, song_id, args.rvc_name, vocal_sound, other_sound, sep_mode)
     
     print('DONE!!')
