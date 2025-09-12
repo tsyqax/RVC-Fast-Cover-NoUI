@@ -202,9 +202,12 @@ if __name__ == '__main__':
       yt_mode = True
 
     else: # drive
-      song_name = os.path.basename(args.input).split('.')[-2]
-      song_ext = os.path.basename(args.input).split('.')[-1]
       song_file = os.path.basename(args.input)
+      try:
+        song_name = os.path.basename(args.input).split('.')[0]
+      else:
+        song_name = song_file
+      song_ext = os.path.basename(args.input).split('.')[-1]
       subprocess.run(['cp', args.input, f'input/{song_file}'], check=True)
       if song_ext != 'mp3':
         audio = AudioSegment.from_file(f'input/{song_file}')
