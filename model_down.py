@@ -1,5 +1,5 @@
 import os
-import requrests
+import requests
 # Thanks to SociallyIneptWeeb/AICoverGen
 
 def dl_model(link, model_name, dir_name):
