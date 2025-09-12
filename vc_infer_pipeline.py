@@ -303,6 +303,8 @@ class VC(object):
              x = torch.from_numpy(x)
              if self.is_half:
               x = x.float()
+             if isinstance(x, torch.Tensor):
+              x = x.cpu().numpy()
               f0 = self.model_fcpe.infer_from_audio(x, thred=0.006) # Example threshold, adjust as needed
 
         f0 *= pow(2, f0_up_key / 12)
