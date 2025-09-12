@@ -118,7 +118,7 @@ class VC(object):
             f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
         elif f0_method == "fcpe":
             #f0 = self.get_torchfcpe(x, self.sr, f0_min, f0_max, p_len)
-            f0 = 0
+            f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
         else:
             print(f"Warning: f0_method '{f0_method}' is not supported. Using 'rmvpe' instead.")
             from rmvpe import RMVPE
@@ -141,6 +141,9 @@ class VC(object):
             shape = f0[self.x_pad * tf0 : self.x_pad * tf0 + len(replace_f0)].shape[0]
             f0[self.x_pad * tf0 : self.x_pad * tf0 + len(replace_f0)] = replace_f0[:shape]
             
+        if isinstance(f0, float):
+            f0 = np.array([f0])
+        
         f0bak = f0.copy()
         f0_mel = 1127 * np.log(1 + f0 / 700)
         f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
