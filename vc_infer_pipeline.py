@@ -302,7 +302,7 @@ class VC(object):
                 )
             
             # 1. NumPy 배열을 PyTorch 텐서로 변환하고 올바른 장치로 보냅니다.
-            x = torch.from_numpy(x).to(self.device)
+            x = librosa.to_mono(x)
         
             if self.is_half:
                 x = x.half()
