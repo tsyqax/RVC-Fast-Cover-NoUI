@@ -17,9 +17,10 @@ from pydub import AudioSegment
 from rvc import Config, load_hubert, get_vc, rvc_infer
 
 try:
-    torch.multiprocessing.set_start_method('spawn')
-except RuntimeError:
-    pass
+    torch.multiprocessing.set_start_method('spawn', force=True)
+    print("멀티프로세싱 시작 방식을 'spawn'으로 설정했습니다.")
+except RuntimeError as e:
+    print(f"멀티프로세싱 시작 방식 설정 오류: {e}")
 
 def songload():
   try:
