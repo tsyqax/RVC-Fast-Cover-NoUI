@@ -22,16 +22,23 @@ class FCPE:
         sr = 16000
         hop_size = 160
         
-        # 1. 오디오 데이터가 NumPy 배열이면 PyTorch 텐서로 변환합니다.
-        if isinstance(audio, np.ndarray):
-            audio = torch.from_numpy(audio).to(self.device)
+        # 1. Ensure audio is a NumPy array for librosa
+        if isinstance(audio, torch.Tensor):
+            audio = audio.cpu().numpy()
+            
+        # 2. Use librosa to ensure audio is mono and the correct shape
+        audio = librosa.to_mono(audio)
         
-        # 2. 모델의 is_half 설정에 따라 float16 또는 float32로 변환합니다.
+        # 3. Convert the mono audio (NumPy array) back to a PyTorch tensor
+        audio = torch.from_numpy(audio).to(self.device)
+        
+        # 4. Set the correct data type (float16 or float32)
         if self.is_half:
             audio = audio.half()
         else:
             audio = audio.float()
             
+        # Add batch and channel dimensions
         audio = audio.unsqueeze(0).unsqueeze(-1)
         
         audio_length = audio.shape[2]
