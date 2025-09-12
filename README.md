@@ -1,4 +1,4 @@
-### **RVC-Cover-Maker-NoGUI**
+### **RVC-FAST-COVER-NOUI**
 
 ## 현재 제작 중  
 (오류 및 버그 탐색 중, 작동 보장 못함)
