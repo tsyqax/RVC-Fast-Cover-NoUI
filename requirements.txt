@@ -9,4 +9,4 @@ pyworld
 torchcrepe
 torchfcpe
 yt-dlp
-torch==2.0.1+cu118
+torch
