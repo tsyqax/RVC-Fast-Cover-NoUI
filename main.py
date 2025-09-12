@@ -13,7 +13,6 @@ import math
 
 
 from pydub import AudioSegment
-from google.colab import drive
 
 from rvc import Config, load_hubert, get_vc, rvc_infer
 
@@ -203,7 +202,6 @@ if __name__ == '__main__':
       yt_mode = True
 
     else: # drive
-      drive.mount('/content/drive')
       song_name = os.path.basename(args.input).split('.')[-2]
       song_ext = os.path.basename(args.input).split('.')[-1]
       song_file = os.path.basename(args.input)
