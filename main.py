@@ -101,9 +101,9 @@ def pitch_song(pitch_vocal_path, pitch_other_path, pitch_vocal, pitch_other, son
       if pitch_other != 0:
         pitch_other = 2 ** (pitch_other / 10)
         change_pitch(input_file=pitch_other_path, output_file='to_merge/mer_inst.mp3', pitch_factor=pitch_other)
-        subprocess.run(['cp', 'to_merge/mer_inst.mp3', 'output/{song_id}/{song_name}_inst.mp3'], check=True)
+        subprocess.run(['cp', 'to_merge/mer_inst.mp3', f'output/{song_id}/{song_name}_inst.mp3'], check=True)
       else:
-        subprocess.run(['cp', pitch_other_path, 'output/{song_id}/{song_name}_inst.mp3'], check=True)
+        subprocess.run(['cp', pitch_other_path, f'output/{song_id}/{song_name}_inst.mp3'], check=True)
         subprocess.run(['mv', pitch_other_path, 'to_merge/mer_inst.mp3'], check=True)
     print("PITCH..!")
 
