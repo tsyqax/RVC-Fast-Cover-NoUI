@@ -9,7 +9,7 @@
 코랩을 기준으로 제작되었습니다.  
 만약 로컬 환경 및 윈도우 환경에서는 수정이 필요할 수 있습니다.
 
-**[코랩 링크](https://colab.research.google.com/drive/1-R2JDb8pS3EBJATKpNx2TvuW3dAZwDiY)**
+**[코랩 링크](https://colab.research.google.com/drive/1-R2JDb8pS3EBJATKpNx2TvuW3dAZwDiY)**  
 이쪽도 제작 중이며 영문판은 완성 후 제작하겠습니다.
 
 #### 빠른 수행 (예상)  
@@ -50,7 +50,7 @@ Github: SociallyIneptWeeb/AICoverGen 및 Colab: CoverGen_NO_UI_v2 에서 많은 
 This was made for Colab.  
 Modifications may be necessary for local and Windows environments.
 
-**[Colab Link](https://colab.research.google.com/drive/1-R2JDb8pS3EBJATKpNx2TvuW3dAZwDiY)** 
+**[Colab Link](https://colab.research.google.com/drive/1-R2JDb8pS3EBJATKpNx2TvuW3dAZwDiY)**   
 This is also under development. I will create an English version after the main project is completed.
 
 #### Fast Performance (Expected)  
