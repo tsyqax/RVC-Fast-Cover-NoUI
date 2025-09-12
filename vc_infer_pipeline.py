@@ -300,6 +300,8 @@ class VC(object):
                  self.model_fcpe = FCPE(
                      os.path.join(BASE_DIR, 'rvc_models', 'fcpe.pt'), is_half=self.is_half, device=self.device
                  )
+            if self.is_half:
+             x = x.float()
              f0 = self.model_fcpe.infer_from_audio(x, thred=0.006) # Example threshold, adjust as needed
 
         f0 *= pow(2, f0_up_key / 12)
