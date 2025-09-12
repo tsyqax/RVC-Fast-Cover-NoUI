@@ -2,7 +2,6 @@ import torch.multiprocessing as mp
 import torch
 from pathlib import Path
 from multiprocessing import cpu_count
-from infer_pack.modules import spawn_bundled_infer_model
 import numpy as np
 from fairseq import checkpoint_utils
 from scipy.io import wavfile
