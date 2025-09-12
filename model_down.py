@@ -15,5 +15,5 @@ os.makedirs('infers', exist_ok=True)
 
 print('MODEL... MAY 2 MINUTES')
 #dl_model('https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/MDX23C_D1581.ckpt', 'MDX23C_D1581.ckpt', '/content/DIR/uvrs')
-dl_model('https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/', 'hubert_base.pt', Path('/content/DIR/rvc_models'))
-dl_model('https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/', 'rmvpe.pt', Path('/content/DIR/rvc_models'))
+dl_model('https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/', 'hubert_base.pt', Path('/content/DIR/infers'))
+dl_model('https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/', 'rmvpe.pt', Path('/content/DIR/infers'))
