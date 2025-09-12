@@ -95,6 +95,7 @@ def pitch_song(pitch_vocal_path, pitch_other_path, pitch_vocal, pitch_other, son
     else:
       subprocess.run(['mv', pitch_vocal_path, 'to_rvc/rvc_vocal.mp3'], check=True)
     if sep_mode is True:
+      os.makedirs(os.getcwd(), 'output', song_id)
       if pitch_other != 0:
         pitch_other = 2 ** (pitch_other / 10)
         change_pitch(input_file=pitch_other_path, output_file='to_merge/mer_inst.mp3', pitch_factor=pitch_other)
