@@ -49,7 +49,7 @@ songs = songload()
 
 # output format = output/ song_id / song_name (rvc model).mp3
 
-def sep_song(song_path, song_name, song_id):
+def sep_song(song_path, song_filename, song_id):
   demucs_command = ["demucs","-d", "cuda", "-n", "mdx", "--mp3", "--two-stems=vocals", "--segment", "16", song_path]
   subprocess.run(demucs_command, check=True)
   sep_path = os.path.join(os.path.dirname(song_path), 'separated', 'mdx', song_name)
@@ -216,7 +216,7 @@ if __name__ == '__main__':
       if song_ext != 'mp3':
         audio = AudioSegment.from_file(f'input/{song_file}')
         audio.export(f"input/{song_name}.mp3", format="mp3", bitrate="128k")
-
+    song_filename = os.path.basename(args.input).split('.')[0]
     try:
       song_id = songs[str(song_name)]
       exist_check = True
@@ -229,9 +229,9 @@ if __name__ == '__main__':
 
 
     if sep_mode is True:
-      sep_song(input_path, song_name, song_id)
+      sep_song(input_path, song_name, song_filename)
     elif exist_check is False:
-      sep_song(input_path, song_name, song_id)
+      sep_song(input_path, song_name, song_filename)
     else:
       print('NO SEPERATE..')
 
