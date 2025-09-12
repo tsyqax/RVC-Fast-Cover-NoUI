@@ -632,6 +632,12 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
         return o, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
 
     def infer(self, phone, phone_lengths, pitch, nsff0, sid, max_len=None):
+        if phone.shape[1] != pitch.shape[1]:
+            min_len = min(phone.shape[1], pitch.shape[1])
+            phone = phone[:, :min_len]
+            pitch = pitch[:, :min_len]
+            phone_lengths = torch.tensor([min_len], device=phone_lengths.device)
+    
         g = self.emb_g(sid).unsqueeze(-1)
         m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
         z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
@@ -743,6 +749,12 @@ class SynthesizerTrnMs768NSFsid(nn.Module):
         return o, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
 
     def infer(self, phone, phone_lengths, pitch, nsff0, sid, max_len=None):
+        if phone.shape[1] != pitch.shape[1]:
+            min_len = min(phone.shape[1], pitch.shape[1])
+            phone = phone[:, :min_len]
+            pitch = pitch[:, :min_len]
+            phone_lengths = torch.tensor([min_len], device=phone_lengths.device)
+    
         g = self.emb_g(sid).unsqueeze(-1)
         m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
         z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
@@ -844,14 +856,19 @@ class SynthesizerTrnMs256NSFsid_nono(nn.Module):
         o = self.dec(z_slice, g=g)
         return o, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
 
-    def infer(self, phone, phone_lengths, sid, max_len=None):
+    def infer(self, phone, phone_lengths, pitch, nsff0, sid, max_len=None):
+        if phone.shape[1] != pitch.shape[1]:
+            min_len = min(phone.shape[1], pitch.shape[1])
+            phone = phone[:, :min_len]
+            pitch = pitch[:, :min_len]
+            phone_lengths = torch.tensor([min_len], device=phone_lengths.device)
+    
         g = self.emb_g(sid).unsqueeze(-1)
-        m_p, logs_p, x_mask = self.enc_p(phone, None, phone_lengths)
+        m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
         z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
         z = self.flow(z_p, x_mask, g=g, reverse=True)
-        o = self.dec((z * x_mask)[:, :, :max_len], g=g)
+        o = self.dec((z * x_mask)[:, :, :max_len], nsff0, g=g)
         return o, x_mask, (z, z_p, m_p, logs_p)
-
 
 class SynthesizerTrnMs768NSFsid_nono(nn.Module):
     def __init__(
@@ -946,12 +963,18 @@ class SynthesizerTrnMs768NSFsid_nono(nn.Module):
         o = self.dec(z_slice, g=g)
         return o, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
 
-    def infer(self, phone, phone_lengths, sid, max_len=None):
+    def infer(self, phone, phone_lengths, pitch, nsff0, sid, max_len=None):
+        if phone.shape[1] != pitch.shape[1]:
+            min_len = min(phone.shape[1], pitch.shape[1])
+            phone = phone[:, :min_len]
+            pitch = pitch[:, :min_len]
+            phone_lengths = torch.tensor([min_len], device=phone_lengths.device)
+    
         g = self.emb_g(sid).unsqueeze(-1)
-        m_p, logs_p, x_mask = self.enc_p(phone, None, phone_lengths)
+        m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
         z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
         z = self.flow(z_p, x_mask, g=g, reverse=True)
-        o = self.dec((z * x_mask)[:, :, :max_len], g=g)
+        o = self.dec((z * x_mask)[:, :, :max_len], nsff0, g=g)
         return o, x_mask, (z, z_p, m_p, logs_p)
 
 
