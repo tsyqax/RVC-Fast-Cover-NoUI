@@ -21,7 +21,8 @@ class FCPE:
     def infer_from_audio(self, audio, thred=0.006):
         sr = 16000
         hop_size = 160
-        
+        if isinstance(audio, torch.Tensor):
+            audio = audio.cpu().numpy()
         audio = librosa.to_mono(audio)
         audio_length = len(audio)
         f0_target_length = (audio_length // hop_size) + 1
