@@ -97,7 +97,7 @@ def pitch_song(pitch_vocal_path, pitch_other_path, pitch_vocal, pitch_other, son
     if sep_mode is True:
     
       pitout = os.path.join(os.getcwd(), 'output', song_id)
-      os.makedirs(pitout)
+      os.makedirs(pitout, exist_ok=True)
       if pitch_other != 0:
         pitch_other = 2 ** (pitch_other / 10)
         change_pitch(input_file=pitch_other_path, output_file='to_merge/mer_inst.mp3', pitch_factor=pitch_other)
