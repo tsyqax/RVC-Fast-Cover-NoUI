@@ -9,4 +9,3 @@ pyworld
 torchcrepe
 torchfcpe
 yt-dlp
-torch
