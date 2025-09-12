@@ -451,6 +451,7 @@ class VC(object):
         protect,
         crepe_hop_length,
         f0_file=None,
+        **kwargs
     ):
         if (
             file_index != ""
