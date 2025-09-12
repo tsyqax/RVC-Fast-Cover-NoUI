@@ -18,9 +18,9 @@ from rvc import Config, load_hubert, get_vc, rvc_infer
 
 try:
     torch.multiprocessing.set_start_method('spawn', force=True)
-    print("멀티프로세싱 시작 방식을 'spawn'으로 설정했습니다.")
+    print("spawn")
 except RuntimeError as e:
-    print(f"멀티프로세싱 시작 방식 설정 오류: {e}")
+    print(f"{e}")
 
 def songload():
   try:
@@ -152,8 +152,9 @@ def merge_song(song_name, song_id, rvc_name, vocal_vol, inst_vol, sep_mode):
 
     if not mixed_audio:
         return
-    
-    os.makedirs(os.getcwd(), 'output', song_id, exist_ok=True)
+
+    outoutput = os.path.join(os.getcwd(), 'output', song_id)
+    os.makedirs(outoutput, exist_ok=True)
     
     output_filename = f"{song_name} ({rvc_name}).mp3"
     output_path = os.path.join(os.getcwd(), 'output', song_id, output_filename)
