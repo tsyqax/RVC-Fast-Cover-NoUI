@@ -8,7 +8,8 @@ from scipy.io import wavfile
 import sys
 import os
 
-# Set start method for multiprocessing
+# 멀티프로세싱 시작 방식 설정
+# 윈도우에서는 'spawn'을, 리눅스/macOS에서는 'fork'를 사용합니다.
 if sys.platform == "win32":
     mp.set_start_method("spawn", force=True)
 else:
@@ -102,16 +103,17 @@ class Config:
 
 def worker(q_in, q_out, model_paths, config_dict):
     """
-    Worker process for parallel inference.
-    Initializes models within the process to avoid memory duplication.
+    워커 프로세스.
+    모델 객체 대신 경로를 받아 직접 로드하여 독립적으로 작동합니다.
     """
     try:
         device = config_dict['device']
         is_half = config_dict['is_half']
         hubert_model_path = model_paths['hubert']
         rvc_model_path = model_paths['rvc']
-
-        # 모델을 프로세스 내에서 로드합니다.
+        
+        # NOTE: 모델 객체를 직접 전달받지 않고, 각 워커 프로세스가 독립적으로 모델을 로드합니다.
+        # 이 방식은 메모리를 더 사용하지만, 멀티프로세싱 오류를 방지합니다.
         hubert_model = load_hubert(device, is_half, hubert_model_path)
         cpt, version, net_g, tgt_sr, vc = get_vc(device, is_half, Config(device, is_half), rvc_model_path)
 
@@ -119,11 +121,10 @@ def worker(q_in, q_out, model_paths, config_dict):
             chunk_data = q_in.get()
             if chunk_data is None:  # None은 종료 신호
                 break
-
+            
             (audio_chunk, input_path, times, pitch_change, f0_method, index_path, 
              index_rate, if_f0, filter_radius, rms_mix_rate, protect, crepe_hop_length) = chunk_data
             
-            # vc.pipeline 호출 시 필요한 인자들을 모두 전달합니다.
             result = vc.pipeline(
                 hubert_model, net_g, 0, audio_chunk, input_path, times, pitch_change,
                 f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr,
@@ -137,7 +138,6 @@ def worker(q_in, q_out, model_paths, config_dict):
         traceback.print_exc()
         print(f"Worker process failed with an error: {e}")
         q_out.put(e)
-
 
 def load_hubert(device, is_half, model_path):
     models, saved_cfg, task = checkpoint_utils.load_model_ensemble_and_task([model_path], suffix='', )
@@ -185,7 +185,7 @@ def get_vc(device, is_half, config, model_path):
     vc = VC(tgt_sr, config)
     return cpt, version, net_g, tgt_sr, vc
 
-def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model):
+def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_input):
     if f0_method not in ['rmvpe', 'fcpe']:
         print(f"Warning: f0_method '{f0_method}' is not supported. Using 'rmvpe' instead.")
         f0_method = 'rmvpe'
@@ -206,11 +206,10 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
         q_in = mp.Queue()
         q_out = mp.Queue()
         
-        # NOTE: 모델 객체를 직접 전달하지 않습니다.
-        # 대신, 모델 경로를 워커 프로세스에 전달하여 각 프로세스가 모델을 로드하게 합니다.
+        # 워커 프로세스로 전달할 모델 경로와 설정
         model_paths = {
-            'hubert': 'your_hubert_model_path',  # 여기에 실제 허브ert 모델 파일 경로를 입력하세요.
-            'rvc': 'your_rvc_model_path'        # 여기에 실제 RVC 모델 파일 경로를 입력하세요.
+            'hubert': os.path.join(os.getcwd(), 'infers', 'hubert_bast.pt'),  # 실제 허브ert 모델 경로로 변경하세요!
+            'rvc': rvc_model_input        # 실제 RVC 모델 경로로 변경하세요!
         }
         config_dict = {
             'device': vc.device,
@@ -244,7 +243,7 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
         audio_opt = np.concatenate(processed_chunks)
 
     else:
-        # 1분 미만 오디오는 기존 방식대로 처리
+        # 1분 미만 오디오는 기존 방식대로 처리 (모델 객체를 인자로 사용)
         audio_opt = vc.pipeline(
             hubert_model, net_g, 0, audio, input_path, times, pitch_change, f0_method,
             index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version,
