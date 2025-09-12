@@ -18,9 +18,6 @@ from vc_infer_pipeline import VC
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-print("현재 사용 중인 멀티프로세싱 모듈:", Pool.__module__)
-print("현재 사용 중인 멀티프로세싱 클래스:", Pool.__name__)
-
 class Config:
     def __init__(self, device, is_half):
         self.device = device
