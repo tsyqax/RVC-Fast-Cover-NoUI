@@ -55,8 +55,8 @@ def sep_song(song_path, song_name, song_id):
   sep_path = os.path.join(os.path.dirname(song_path), 'separated', 'mdx', song_name)
   os.makedirs(sep_path, exist_ok=True)
   if os.listdir(sep_path):
-    instis = os.path.join(sep_path, 'accompaniment.mp3') # accompaniment
-    vocalis = os.path.join(sep_path, 'vocal.mp3')
+    instis = os.path.join(sep_path, 'no_vocals.mp3') # accompaniment
+    vocalis = os.path.join(sep_path, 'vocals.mp3')
     pitch_dir = os.path.join(os.getcwd(), 'pitch')
     os.makedirs(pitch_dir, exist_ok=True)
     keep_dir = os.path.join(os.getcwd(), song_id)
