@@ -208,7 +208,7 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
         
         # 워커 프로세스로 전달할 모델 경로와 설정
         model_paths = {
-            'hubert': os.path.join(os.getcwd(), 'infers', 'hubert_bast.pt'),  # 실제 허브ert 모델 경로로 변경하세요!
+            'hubert': os.path.join(os.getcwd(), 'infers', 'hubert_base.pt'),  # 실제 허브ert 모델 경로로 변경하세요!
             'rvc': rvc_model_input        # 실제 RVC 모델 경로로 변경하세요!
         }
         config_dict = {
