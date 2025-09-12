@@ -1,5 +1,5 @@
 from multiprocessing import cpu_count
-from torch.multiprocessing import Pool, set_start_method
+from torch.multiprocessing import Pool
 from pathlib import Path
 
 import torch
@@ -143,7 +143,6 @@ def get_vc(device, is_half, config, model_path):
     vc = VC(tgt_sr, config)
     return cpt, version, net_g, tgt_sr, vc
 
-
 def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model):
     if f0_method not in ['rmvpe', 'fcpe']:
         print(f"Warning: f0_method '{f0_method}' is not supported. Using 'rmvpe' instead.")
@@ -153,7 +152,6 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
     times = [0, 0, 0]
     if_f0 = cpt.get('f0', 1)
 
-    # Place models in shared memory to allow multiprocessing without serialization errors
     hubert_model.share_memory()
     net_g.share_memory()
 
@@ -162,34 +160,12 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
         num_chunks = cpu_count()
         chunk_length = len(audio) // num_chunks
         
-        # Convert NumPy array to PyTorch tensor
         chunks = [torch.from_numpy(audio[i * chunk_length:(i + 1) * chunk_length]) for i in range(num_chunks)]
         
         if len(audio) % num_chunks != 0:
             chunks[-1] = torch.cat((chunks[-1], torch.from_numpy(audio[num_chunks * chunk_length:])))
         
-        args_list = [
-            (
-                hubert_model, 
-                net_g, 
-                chunk, 
-                input_path, 
-                times, 
-                pitch_change, 
-                f0_method, 
-                index_path, 
-                index_rate, 
-                if_f0, 
-                filter_radius, 
-                tgt_sr, 
-                rms_mix_rate, 
-                version, 
-                protect, 
-                crepe_hop_length, 
-                vc
-            )
-            for chunk in chunks
-        ]
+        args_list = [(hubert_model, net_g, chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, vc) for chunk in chunks]
         
         with Pool(cpu_count()) as p:
             processed_chunks = p.map(process_chunk, args_list)
