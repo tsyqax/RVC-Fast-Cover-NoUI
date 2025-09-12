@@ -393,8 +393,9 @@ class VC(object):
                 0, 2, 1
             )
         t1 = ttime()
+        t2 = 0
         times[0] += t1 - t0
-        times[2] += t2 - t1
+        times[2] +=  - t1
         with torch.no_grad():
             if pitch != None and pitchf != None:
                 audio1 = (
