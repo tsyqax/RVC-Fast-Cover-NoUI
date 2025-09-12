@@ -99,16 +99,23 @@ def process_chunk(args):
     return vc.pipeline(hubert_model, net_g, 0, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
 
 def worker(args, queue):
+    print("Worker process started.") # 이 부분이 출력되는지 확인
     try:
-        # 기존 로직 (오디오 처리)
         hubert_model, net_g, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, vc = args
+        
+        # 모델을 다시 GPU로 옮기는 코드는 다시 제거하세요. 메모리 문제의 원인이 될 수 있습니다.
+        hubert_model.to(hubert_model.device)
+        net_g.to(net_g.device)
+
         result = vc.pipeline(hubert_model, net_g, 0, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
+        
+        # 결과물의 길이를 출력하여 성공 여부 확인
+        print(f"Worker process finished. Result length: {len(result)}")
         queue.put(result)
     except Exception as e:
-        # 오류가 발생하면, 어떤 오류인지 명확하게 출력합니다.
         print(f"Worker process failed with an error: {e}")
         import traceback
-        traceback.print_exc() # 상세한 오류 스택을 출력
+        traceback.print_exc()
         queue.put(e)
         
 def load_hubert(device, is_half, model_path):
