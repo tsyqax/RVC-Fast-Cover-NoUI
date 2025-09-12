@@ -306,14 +306,8 @@ class VC(object):
                 x = x.cpu().numpy()
             x = librosa.to_mono(x)
             
-            x = torch.from_numpy(x).to(self.device)
-        
-            if self.is_half:
-                x = x.half()
-            else:
-                x = x.float()
-        
-            # 3. fcpe 모델에 변환된 텐서를 전달합니다.
+            x = torch.from_numpy(x).to(self.device).float()
+
             f0 = self.model_fcpe.infer_from_audio(x, thred=0.006)
 
         f0 *= pow(2, f0_up_key / 12)
