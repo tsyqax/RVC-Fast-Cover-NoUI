@@ -325,17 +325,18 @@ class VC(object):
                 :shape
             ]
 
-        f0bak = f0.copy()
-        f0_mel = 1127 * np.log(1 + f0 / 700)
-        f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
-            f0_mel_max - f0_mel_min
-        ) + 1
-        f0_mel[f0_mel <= 1] = 1
-        f0_mel[f0_mel > 255] = 255
-        f0_coarse = np.rint(f0_mel).astype(np.int)
+        f0_mel = self.model_fcpe.infer_from_audio(x, thred=0.006)
 
-        return f0_coarse, f0bak  # 1-0
+        # Convert the scalar value to a NumPy array if it's not already
+        if not isinstance(f0_mel, np.ndarray):
+            f0_mel = np.array([f0_mel])
+        
+        f0_mel_min = 150 # a value to fix the error (this is just an example, it might need to be fine-tuned)
+        f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (254.0 - f0_mel_min)
+        
+        f0_mel = f0_mel.astype(np.float64)
 
+return f0_mel, None
     def vc(
         self,
         model: nn.Module,
