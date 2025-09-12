@@ -293,13 +293,12 @@ class VC(object):
                     os.path.join(BASE_DIR, 'DIR', 'infers', 'rmvpe.pt'), is_half=self.is_half, device=self.device
                 )
             f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
-         elif f0_method == "fcpe":
-            if hasattr(self, "model_fcpe") == False:
-                from fcpe import FCPE
-        
-                self.model_fcpe = FCPE(
-                    os.path.join(BASE_DIR, 'rvc_models', 'fcpe.pt'), is_half=self.is_half, device=self.device
-                )
+        elif f0_method == "fcpe":
+          if hasattr(self, "model_fcpe") == False:
+            from fcpe import FCPE
+            self.model_fcpe = FCPE(
+              os.path.join(BASE_DIR, 'rvc_models', 'fcpe.pt'), is_half=self.is_half, device=self.device
+            )
             
             x = torch.from_numpy(x)
             
