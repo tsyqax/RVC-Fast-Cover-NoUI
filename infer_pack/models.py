@@ -636,7 +636,7 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
             min_len = min(phone.shape[1], pitch.shape[1])
             phone = phone[:, :min_len]
             pitch = pitch[:, :min_len]
-            phone_lengths = torch.tensor([min_len], device=phone_lengths.device)
+            phone_lengths = torch.tensor([min_len], device=phone.device)
     
         g = self.emb_g(sid).unsqueeze(-1)
         m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
@@ -753,7 +753,7 @@ class SynthesizerTrnMs768NSFsid(nn.Module):
             min_len = min(phone.shape[1], pitch.shape[1])
             phone = phone[:, :min_len]
             pitch = pitch[:, :min_len]
-            phone_lengths = torch.tensor([min_len], device=phone_lengths.device)
+            phone_lengths = torch.tensor([min_len], device=phone.device)
     
         g = self.emb_g(sid).unsqueeze(-1)
         m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
@@ -861,7 +861,7 @@ class SynthesizerTrnMs256NSFsid_nono(nn.Module):
             min_len = min(phone.shape[1], pitch.shape[1])
             phone = phone[:, :min_len]
             pitch = pitch[:, :min_len]
-            phone_lengths = torch.tensor([min_len], device=phone_lengths.device)
+            phone_lengths = torch.tensor([min_len], device=phone.device)
     
         g = self.emb_g(sid).unsqueeze(-1)
         m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
@@ -968,7 +968,7 @@ class SynthesizerTrnMs768NSFsid_nono(nn.Module):
             min_len = min(phone.shape[1], pitch.shape[1])
             phone = phone[:, :min_len]
             pitch = pitch[:, :min_len]
-            phone_lengths = torch.tensor([min_len], device=phone_lengths.device)
+            phone_lengths = torch.tensor([min_len], device=phone.device)
     
         g = self.emb_g(sid).unsqueeze(-1)
         m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
