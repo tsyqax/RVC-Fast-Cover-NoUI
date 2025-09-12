@@ -99,7 +99,7 @@ def process_chunk(args):
     return vc.pipeline(hubert_model, net_g, 0, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
 
 def worker(args, queue):
-    print("Worker process started.") # 이 부분이 출력되는지 확인
+    print("Worker process started.")
     try:
         hubert_model, net_g, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, vc = args
         
@@ -194,8 +194,8 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
                 0, rms_mix_rate, version, protect, crepe_hop_length
             )
             processed_chunks.append(processed_chunk)
-        
-        audio_opt = torch.cat(processed_chunks)
+        tensor_chunks = [torch.from_numpy(chunk) for chunk in processed_chunks]
+        audio_opt = torch.cat(tensor_chunks)
 
     else:
         audio = torch.from_numpy(audio) if isinstance(audio, np.ndarray) else audio
