@@ -336,7 +336,7 @@ class VC(object):
         f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (254.0 - f0_mel_min)
         f0_mel = f0_mel.astype(np.float64)
 
-return f0_mel, f0
+        return f0_mel, f0
     def vc(
         self,
         model: nn.Module,
