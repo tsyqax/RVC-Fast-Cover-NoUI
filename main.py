@@ -219,8 +219,9 @@ if __name__ == '__main__':
     try:
       song_id = songs[str(song_name)]
       exist_check = True
-    except:
+    except Exception as e:
       song_id = str(uuid.uuid4()).split('-')[0]
+      print('NO ID... or ERR: {e}')
 
     input_path0 = os.path.join(os.getcwd(), 'input')
     os.makedirs(input_path0, exist_ok=True)
