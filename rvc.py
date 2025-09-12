@@ -166,61 +166,34 @@ def get_vc(device, is_half, config, model_path):
 
 def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model):
     if f0_method not in ['rmvpe', 'fcpe']:
+        print(f"Warning: f0_method '{f0_method}' is not supported. Using 'rmvpe' instead.")
         f0_method = 'rmvpe'
     
     audio = load_audio(input_path, 16000)
     times = [0, 0, 0]
     if_f0 = cpt.get('f0', 1)
 
-    # 모델 객체를 공유 메모리에 배치
-    hubert_model.share_memory()
-    net_g.share_memory()
-
+    # Use a simple loop for sequential processing
     if len(audio) / 16000 > 60:
-        print("Audio is longer than 1 minute. Splitting and processing in parallel.")
-        num_chunks = mp.cpu_count()
+        print("Audio is longer than 1 minute. Processing in chunks sequentially.")
+        
+        # Split audio into chunks (same as before)
+        num_chunks = int(len(audio) / 16000 / 60) + 1
         chunk_length = len(audio) // num_chunks
-        
         chunks = [torch.from_numpy(audio[i * chunk_length:(i + 1) * chunk_length]) for i in range(num_chunks)]
-        
         if len(audio) % num_chunks != 0:
             chunks[-1] = torch.cat((chunks[-1], torch.from_numpy(audio[num_chunks * chunk_length:])))
-        
-        args_list = [
-            (
-                hubert_model, 
-                net_g, 
-                chunk, 
-                input_path, 
-                times, 
-                pitch_change, 
-                f0_method, 
-                index_path, 
-                index_rate, 
-                if_f0, 
-                filter_radius, 
-                tgt_sr, 
-                rms_mix_rate, 
-                version, 
-                protect, 
-                crepe_hop_length, 
-                vc
-            )
-            for chunk in chunks
-        ]
-        
-        # Pool 대신 Process를 수동으로 사용
-        processes = []
-        result_queue = mp.Queue()
-        
-        
+
         processed_chunks = []
-        for p in processes:
-            result = result_queue.get()
-            if isinstance(result, Exception):
-                raise result  # 예외 발생 시 전파
-            processed_chunks.append(result)
-            p.join()
+        for i, chunk in enumerate(chunks):
+            print(f"Processing chunk {i+1}/{num_chunks}...")
+            # This is the original vc.pipeline call, but now in a loop
+            processed_chunk = vc.pipeline(
+                hubert_model, net_g, 0, chunk, input_path, times, pitch_change, 
+                f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 
+                0, rms_mix_rate, version, protect, crepe_hop_length
+            )
+            processed_chunks.append(processed_chunk)
         
         audio_opt = torch.cat(processed_chunks)
 
