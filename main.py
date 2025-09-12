@@ -61,7 +61,8 @@ def sep_song(song_path, song_filename, song_id):
     os.makedirs(pitch_dir, exist_ok=True)
     keep_dir = os.path.join(os.getcwd(), song_id)
     os.makedirs(keep_dir, exist_ok=True)
-    
+    print(f"vocalis 경로: {vocalis}")
+    print(f"instis 경로: {instis}")
     subprocess.run(['cp', vocalis, os.path.join(keep_dir, 'sep_vocal.mp3')], check=True)
     subprocess.run(['cp', instis,  os.path.join(keep_dir, 'sep_inst.mp3')], check=True)
     subprocess.run(['mv', vocalis, os.path.join(pitch_dir, 'pitch_vocal.mp3')], check=True)
