@@ -50,7 +50,7 @@ songs = songload()
 # output format = output/ song_id / song_name (rvc model).mp3
 
 def sep_song(song_path, song_name, song_id):
-  demucs_command = ["demucs","-d", "cuda", "-n", "mdx", "--mp3", "--two-stems", "vocal", "--segment", "16", song_path]
+  demucs_command = ["demucs","-d", "cuda", "-n", "mdx", "--mp3", "--two-stems=vocals", "--segment", "16", song_path]
   subprocess.run(demucs_command, check=True)
   sep_path = os.path.join(os.path.dirname(song_path), 'separated', 'mdx', song_name)
   os.makedirs(sep_path, exist_ok=True)
