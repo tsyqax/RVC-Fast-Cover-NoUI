@@ -1,6 +1,7 @@
 from functools import lru_cache
 from time import time as ttime
 
+import torch.nn as nn
 import faiss
 import librosa
 import numpy as np
