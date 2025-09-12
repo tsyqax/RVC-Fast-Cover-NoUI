@@ -103,8 +103,7 @@ class Config:
 
 def worker(q_in, q_out, model_paths, config_dict):
     """
-    Worker process 워커 프로세스.
-    모델 객체 대신 경로를 받아 직접 로드하여 독립적으로 작동합니다.
+    워커 프로세스.
     """
     try:
         device = config_dict['device']
@@ -120,23 +119,27 @@ def worker(q_in, q_out, model_paths, config_dict):
             if chunk_data is None:
                 break
             
+            # 모든 13개의 값(인자 12개 + 인덱스 1개)을 언패킹
             (audio_chunk, input_path, times, pitch_change, f0_method, index_path, 
-             index_rate, if_f0, filter_radius, rms_mix_rate, protect, crepe_hop_length) = chunk_data
+             index_rate, if_f0, filter_radius, rms_mix_rate, protect, crepe_hop_length, index) = chunk_data
             
+            # 파이프라인 연산 수행
             result = vc.pipeline(
                 hubert_model, net_g, 0, audio_chunk, input_path, times, pitch_change,
                 f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr,
                 0, rms_mix_rate, version, protect, crepe_hop_length
             )
+            
+            # 💡 결과와 인덱스를 함께 출력 큐에 넣음 (순서 수정)
             q_out.put((result, index))
             
-        print("Worker process finished.")
+        print("워커 프로세스 종료.")
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"Worker process failed with an error: {e}")
+        print(f"워커 프로세스 오류 발생: {e}")
         q_out.put(e)
-
+        
 def load_hubert(device, is_half, model_path):
     models, saved_cfg, task = checkpoint_utils.load_model_ensemble_and_task([model_path], suffix='', )
     hubert = models[0]
