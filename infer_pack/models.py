@@ -91,19 +91,27 @@ class TextEncoder768(nn.Module):
         self.proj = nn.Conv1d(hidden_channels, out_channels * 2, 1)
 
     def forward(self, phone, pitch, lengths):
-        if pitch == None:
+        if pitch is None:
             x = self.emb_phone(phone)
         else:
             x = self.emb_phone(phone) + self.emb_pitch(pitch)
+        
         x = x * math.sqrt(self.hidden_channels)  # [b, t, h]
         x = self.lrelu(x)
         x = torch.transpose(x, 1, -1)  # [b, h, t]
-        x_mask = torch.unsqueeze(commons.sequence_mask(lengths, x.size(2)), 1).to(
+        
+        if isinstance(lengths, int):
+            lengths_tensor = torch.tensor(lengths, device=x.device)
+        else:
+            lengths_tensor = lengths
+        
+        x_mask = torch.unsqueeze(commons.sequence_mask(lengths_tensor, x.size(2)), 1).to(
             x.dtype
         )
+        
         x = self.encoder(x * x_mask, x_mask)
         stats = self.proj(x) * x_mask
-
+    
         m, logs = torch.split(stats, self.out_channels, dim=1)
         return m, logs, x_mask
 
