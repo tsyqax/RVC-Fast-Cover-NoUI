@@ -16,6 +16,7 @@ import torchcrepe
 import traceback
 from scipy import signal
 from torch import Tensor
+from fcpe import FCPE
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 now_dir = os.path.join(BASE_DIR, 'src')
@@ -93,6 +94,25 @@ class VC(object):
         # Insert an else here to grab "xla" devices if available. TO DO later. Requires the torch_xla.core.xla_model library
         # Else wise return the "cpu" as a torch device,
         return torch.device("cpu")
+    def get_fcpe(self, x, f0_min, f0_max, p_len, *args, **kwargs):
+        self.model_fcpe = FCPE(os.environ["fcpe_model_path"], f0_min=f0_min, f0_max=f0_max, dtype=torch.float32, device=self.device, sampling_rate=self.sr, threshold=0.03)
+        f0 = self.model_fcpe.compute_f0(x, p_len=p_len)
+        del self.model_fcpe
+        gc.collect()
+        return f0
+
+    def get_torchfcpe(self, x, sr, f0_min, f0_max, p_len, *args, **kwargs):
+        self.model_torchfcpe = spawn_bundled_infer_model(device=self.device)
+        f0 = self.model_torchfcpe.infer(
+            torch.from_numpy(x).float().unsqueeze(0).unsqueeze(-1).to(self.device),
+            sr=sr,
+            decoder_mode="local_argmax",
+            threshold=0.006,
+            f0_min=f0_min,
+            f0_max=f0_max,
+            output_interp_target_length=p_len
+        )
+        return f0.squeeze().cpu().numpy()
 
     # Fork Feature: Compute f0 with the crepe method
     def get_f0_crepe_computation(
@@ -294,13 +314,7 @@ class VC(object):
                 )
             f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
         elif f0_method == "fcpe":
-             if hasattr(self, "model_fcpe") == False:
-                 from fcpe import FCPE
-
-                 self.model_fcpe = FCPE(
-                     os.path.join(BASE_DIR, 'rvc_models', 'fcpe.pt'), is_half=self.is_half, device=self.device
-                 )
-             f0 = self.model_fcpe.infer_from_audio(x, thred=0.006) # Example threshold, adjust as needed
+            f0 = self.get_torchfcpe(x, self.sr, f0_min, f0_max, p_len)
 
         f0 *= pow(2, f0_up_key / 12)
 
