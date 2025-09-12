@@ -133,11 +133,11 @@ def worker(q_in, q_out, model_paths, config_dict):
             # 💡 결과와 인덱스를 함께 출력 큐에 넣음 (순서 수정)
             q_out.put((result, index))
             
-        print("워커 프로세스 종료.")
+        print("END WORK.")
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"워커 프로세스 오류 발생: {e}")
+        print(f"WORK ERROR: {e}")
         q_out.put(e)
         
 def load_hubert(device, is_half, model_path):
