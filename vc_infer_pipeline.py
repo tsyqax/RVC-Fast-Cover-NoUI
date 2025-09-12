@@ -17,6 +17,7 @@ import traceback
 from scipy import signal
 from torch import Tensor
 from fcpe import FCPE
+from rmvpe import RMVPE 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 now_dir = os.path.join(BASE_DIR, 'src')
