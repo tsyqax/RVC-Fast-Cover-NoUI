@@ -306,6 +306,8 @@ class VC(object):
         
             if self.is_half:
                 x = x.half()
+            else:
+                x = x.float()
         
             # 3. fcpe 모델에 변환된 텐서를 전달합니다.
             f0 = self.model_fcpe.infer_from_audio(x, thred=0.006)
