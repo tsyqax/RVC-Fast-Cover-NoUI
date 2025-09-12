@@ -110,14 +110,14 @@ def pitch_song(pitch_vocal_path, pitch_other_path, pitch_vocal, pitch_other, son
   except Exception as e:
     print(f"PITCH_ERROR: {e}")
 
-def rvc_song(rvc_index_path, rvc_model_path, index_rate, input_path, output_path, pitch_change, f0_method, filter_radius, rms_mix_rate, protect, crepe_hop_length):
+def rvc_song(rvc_index_path, rvc_model_path, index_rate, input_path, output_path, pitch_change, f0_method, filter_radius, rms_mix_rate, protect, crepe_hop_length, rvc_model_path):
   device = 'cuda:0'
   config = Config(device, True)
   hubert_model = load_hubert(device, config.is_half, os.path.join(os.getcwd(), 'infers', 'hubert_base.pt'))
   cpt, version, net_g, tgt_sr, vc = get_vc(device, config.is_half, config, rvc_model_path)
 
   # convert main vocals
-  rvc_infer(rvc_index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model)
+  rvc_infer(rvc_index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_path)
   del hubert_model, cpt
   gc.collect()
 
@@ -282,7 +282,7 @@ if __name__ == '__main__':
     os.makedirs(rvc_input_path0, exist_ok=True)
     rvc_input_path = os.path.join(rvc_input_path0, 'rvc_vocal.mp3')
 
-    rvc_song(rvc_index_path, rvc_model_path, args.index_rate, rvc_input_path, rvc_output_path, 0, args.rvc_method, 3, args.rms_rate, 0.33, 128)
+    rvc_song(rvc_index_path, rvc_model_path, args.index_rate, rvc_input_path, rvc_output_path, 0, args.rvc_method, 3, args.rms_rate, 0.33, 128, rvc_model_path)
     
     merge_song(song_name, song_id, args.rvc_name, vocal_sound, other_sound, sep_mode)
     songs[song_name] = song_id
