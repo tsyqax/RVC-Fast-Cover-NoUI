@@ -1,5 +1,5 @@
 from multiprocessing import cpu_count
-from torch.multiprocessing import Pool
+from torch.multiprocessing import Pool, set_start_method
 from pathlib import Path
 
 import torch
