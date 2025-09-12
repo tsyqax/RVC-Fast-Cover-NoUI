@@ -100,10 +100,15 @@ def process_chunk(args):
 
 def worker(args, queue):
     try:
+        # 기존 로직 (오디오 처리)
         hubert_model, net_g, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, vc = args
         result = vc.pipeline(hubert_model, net_g, 0, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
         queue.put(result)
     except Exception as e:
+        # 오류가 발생하면, 어떤 오류인지 명확하게 출력합니다.
+        print(f"Worker process failed with an error: {e}")
+        import traceback
+        traceback.print_exc() # 상세한 오류 스택을 출력
         queue.put(e)
         
 def load_hubert(device, is_half, model_path):
