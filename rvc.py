@@ -1,12 +1,18 @@
 import torch.multiprocessing as mp
 import torch
 from pathlib import Path
-
 from multiprocessing import cpu_count
-import torch
 import numpy as np
 from fairseq import checkpoint_utils
 from scipy.io import wavfile
+import sys
+import os
+
+# Set start method for multiprocessing
+if sys.platform == "win32":
+    mp.set_start_method("spawn", force=True)
+else:
+    mp.set_start_method("fork", force=True)
 
 from infer_pack.models import (
     SynthesizerTrnMs256NSFsid,
@@ -94,30 +100,42 @@ class Config:
 
         return x_pad, x_query, x_center, x_max
 
-def process_chunk(args):
-    hubert_model, net_g, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, vc = args
-    return vc.pipeline(hubert_model, net_g, 0, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
-
-def worker(args, queue):
-    print("Worker process started.")
+def worker(q_in, q_out, model_paths, config_dict):
+    """
+    Worker process for parallel inference.
+    Initializes models within the process to avoid memory duplication.
+    """
     try:
-        hubert_model, net_g, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, vc = args
-        
-        # 모델을 다시 GPU로 옮기는 코드는 다시 제거하세요. 메모리 문제의 원인이 될 수 있습니다.
-        hubert_model.to(hubert_model.device)
-        net_g.to(net_g.device)
+        device = config_dict['device']
+        is_half = config_dict['is_half']
+        hubert_model_path = model_paths['hubert']
+        rvc_model_path = model_paths['rvc']
 
-        result = vc.pipeline(hubert_model, net_g, 0, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
-        
-        # 결과물의 길이를 출력하여 성공 여부 확인
-        print(f"Worker process finished. Result length: {len(result)}")
-        queue.put(result)
+        # 모델을 프로세스 내에서 로드합니다.
+        hubert_model = load_hubert(device, is_half, hubert_model_path)
+        cpt, version, net_g, tgt_sr, vc = get_vc(device, is_half, Config(device, is_half), rvc_model_path)
+
+        while True:
+            chunk_data = q_in.get()
+            if chunk_data is None: # None is a signal to stop
+                break
+
+            (audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, 
+             if_f0, filter_radius, rms_mix_rate, protect, crepe_hop_length) = chunk_data
+            
+            # vc.pipeline 호출 시 필요한 인자들을 모두 전달합니다.
+            result = vc.pipeline(
+                hubert_model, net_g, 0, audio_chunk, input_path, times, pitch_change,
+                f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr,
+                0, rms_mix_rate, version, protect, crepe_hop_length
+            )
+            q_out.put(result)
+            
+        print("Worker process finished.")
     except Exception as e:
         print(f"Worker process failed with an error: {e}")
-        import traceback
-        traceback.print_exc()
-        queue.put(e)
-        
+        q_out.put(e)
+
 def load_hubert(device, is_half, model_path):
     models, saved_cfg, task = checkpoint_utils.load_model_ensemble_and_task([model_path], suffix='', )
     hubert = models[0]
@@ -173,32 +191,70 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
     times = [0, 0, 0]
     if_f0 = cpt.get('f0', 1)
 
-    # Use a simple loop for sequential processing
+    # 1분을 기준으로 병렬 또는 순차 처리 선택
     if len(audio) / 16000 > 60:
-        print("Audio is longer than 1 minute. Processing in chunks sequentially.")
+        print("Audio is longer than 1 minute. Starting parallel processing.")
         
-        # Split audio into chunks (same as before)
-        num_chunks = int(len(audio) / 16000 / 60) + 1
+        # 오디오를 병렬 처리를 위한 청크로 분할
+        num_chunks = max(2, int(len(audio) / 16000 / 60))
         chunk_length = len(audio) // num_chunks
-        chunks = [torch.from_numpy(audio[i * chunk_length:(i + 1) * chunk_length]) for i in range(num_chunks)]
+        chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_chunks)]
         if len(audio) % num_chunks != 0:
-            chunks[-1] = torch.cat((chunks[-1], torch.from_numpy(audio[num_chunks * chunk_length:])))
+            chunks[-1] = np.concatenate((chunks[-1], audio[num_chunks * chunk_length:]))
 
+        # 멀티프로세싱을 위한 큐 생성
+        q_in = mp.Queue()
+        q_out = mp.Queue()
+        
+        # 모델 경로와 설정 정보
+        model_paths = {
+            'hubert': 'your_hubert_model_path', # 실제 경로로 변경해야 합니다.
+            'rvc': 'your_rvc_model_path' # 실제 경로로 변경해야 합니다.
+        }
+        config_dict = {
+            'device': vc.device,
+            'is_half': vc.is_half
+        }
+        
+        # 워커 프로세스 시작
+        processes = [
+            mp.Process(target=worker, args=(q_in, q_out, model_paths, config_dict))
+            for _ in range(num_chunks)
+        ]
+        for p in processes:
+            p.start()
+        
+        # 입력 큐에 청크 데이터 넣기
+        for chunk in chunks:
+            q_in.put((chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, 
+                      if_f0, filter_radius, rms_mix_rate, protect, crepe_hop_length))
+
+        # 종료 신호 보내기
+        for _ in range(num_chunks):
+            q_in.put(None)
+            
+        # 결과 수집
         processed_chunks = []
-        for i, chunk in enumerate(chunks):
-            print(f"Processing chunk {i+1}/{num_chunks}...")
-            # This is the original vc.pipeline call, but now in a loop
-            processed_chunk = vc.pipeline(
-                hubert_model, net_g, 0, chunk, input_path, times, pitch_change, 
-                f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 
-                0, rms_mix_rate, version, protect, crepe_hop_length
-            )
-            processed_chunks.append(processed_chunk)
-        tensor_chunks = [torch.from_numpy(chunk) for chunk in processed_chunks]
-        audio_opt = torch.cat(tensor_chunks)
+        for _ in range(num_chunks):
+            result = q_out.get()
+            if isinstance(result, Exception):
+                raise result # 워커 프로세스에서 발생한 오류를 전파
+            processed_chunks.append(result)
+
+        # 프로세스 종료 대기
+        for p in processes:
+            p.join()
+        
+        # 청크들을 하나로 합치고, 넘파이 배열로 변환
+        audio_opt = np.concatenate(processed_chunks)
 
     else:
-        audio = torch.from_numpy(audio) if isinstance(audio, np.ndarray) else audio
-        audio_opt = vc.pipeline(hubert_model, net_g, 0, audio, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
+        print("Audio is shorter than 1 minute. Processing sequentially.")
+        audio_opt = vc.pipeline(
+            hubert_model, net_g, 0, audio, input_path, times, pitch_change, f0_method,
+            index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version,
+            protect, crepe_hop_length
+        )
 
-    wavfile.write(output_path, tgt_sr, audio_opt.numpy())
+    # 최종 오디오 파일 저장
+    wavfile.write(output_path, tgt_sr, audio_opt)
