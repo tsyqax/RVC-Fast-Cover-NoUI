@@ -22,23 +22,7 @@ class FCPE:
         sr = 16000
         hop_size = 160
         
-        # 1. Ensure audio is a NumPy array for librosa
-        if isinstance(audio, torch.Tensor):
-            audio = audio.cpu().numpy()
-            
-        # 2. Use librosa to ensure audio is mono and the correct shape
-        audio = librosa.to_mono(audio)
-        
-        # 3. Convert the mono audio (NumPy array) back to a PyTorch tensor
-        audio = torch.from_numpy(audio).to(self.device)
-        
-        # 4. Set the correct data type (float16 or float32)
-        if self.is_half:
-            audio = audio.half()
-        else:
-            audio = audio.float()
-            
-        # Add batch and channel dimensions
+        # Input 'audio' is now a correctly formatted PyTorch tensor from vc_infer_pipeline.py
         audio = audio.unsqueeze(0).unsqueeze(-1)
         
         audio_length = audio.shape[2]
