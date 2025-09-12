@@ -1,5 +1,6 @@
 from functools import lru_cache
 from time import time as ttime
+from typing import Any
 
 import torch.nn as nn
 import faiss
