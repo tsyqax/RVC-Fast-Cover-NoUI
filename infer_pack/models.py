@@ -502,6 +502,10 @@ class GeneratorNSF(torch.nn.Module):
             x = F.leaky_relu(x, modules.LRELU_SLOPE)
             x = self.ups[i](x)
             x_source = self.noise_convs[i](har_source)
+            if x.shape[2] != x_source.shape[2]:
+                min_len = min(x.shape[2], x_source.shape[2])
+                x = x[:, :, :min_len]
+                x_source = x_source[:, :, :min_len]
             x = x + x_source
             xs = None
             for j in range(self.num_kernels):
