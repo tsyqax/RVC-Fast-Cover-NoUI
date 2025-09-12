@@ -201,17 +201,6 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
         processes = []
         result_queue = mp.Queue()
         
-        def worker(args, queue):
-            try:
-                result = process_chunk(args)
-                queue.put(result)
-            except Exception as e:
-                queue.put(e)
-
-        for args in args_list:
-            p = mp.Process(target=worker, args=(args, result_queue))
-            processes.append(p)
-            p.start()
         
         processed_chunks = []
         for p in processes:
