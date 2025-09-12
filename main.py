@@ -14,7 +14,6 @@ import math
 
 from pydub import AudioSegment
 from google.colab import drive
-from pydub import AudioSegment
 
 from rvc import Config, load_hubert, get_vc, rvc_infer
 
@@ -61,10 +60,13 @@ def sep_song(song_path, song_name, song_id):
     vocalis = os.path.join(sep_path, 'vocal.mp3')
     pitch_dir = os.path.join(os.getcwd(), 'pitch')
     os.makedirs(pitch_dir, exist_ok=True)
-    subprocess.run(['cp', vocalis, f'keep/{song_id}/sep_vocal.mp3'], check=True)
-    subprocess.run(['cp', instis, f'keep/{song_id}/sep_inst.mp3'], check=True)
-    subprocess.run(['mv', vocalis, 'pitch/pitch_vocal.mp3'], check=True)
-    subprocess.run(['mv', instis, 'pitch/pitch_inst.mp3'], check=True)
+    keep_dir = os.path.join(os.getcwd(), song_id)
+    os.makedirs(keep_dir, exist_ok=True)
+    
+    subprocess.run(['cp', vocalis, os.path.join(keep_dir, 'sep_vocal.mp3')], check=True)
+    subprocess.run(['cp', instis,  os.path.join(keep_dir, 'sep_inst.mp3')], check=True)
+    subprocess.run(['mv', vocalis, os.path.join(pitch_dir, 'pitch_vocal.mp3')], check=True)
+    subprocess.run(['mv', instis,  os.path.join(pitch_dir, 'pitch_inst.mp3')], check=True)
     #songs = songload()
     songs[song_name] = song_id
     songsave(songs)
