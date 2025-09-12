@@ -16,6 +16,11 @@ from pydub import AudioSegment
 
 from rvc import Config, load_hubert, get_vc, rvc_infer
 
+try:
+    torch.multiprocessing.set_start_method('spawn')
+except RuntimeError:
+    pass
+
 def songload():
   try:
     with open('songs.json', 'r') as file:
