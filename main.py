@@ -205,7 +205,7 @@ if __name__ == '__main__':
       song_file = os.path.basename(args.input)
       try:
         song_name = os.path.basename(args.input).split('.')[0]
-      else:
+      except:
         song_name = song_file
       song_ext = os.path.basename(args.input).split('.')[-1]
       subprocess.run(['cp', args.input, f'input/{song_file}'], check=True)
