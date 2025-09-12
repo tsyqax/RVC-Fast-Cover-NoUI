@@ -304,7 +304,8 @@ class VC(object):
             # 1. NumPy 배열을 PyTorch 텐서로 변환하고 올바른 장치로 보냅니다.
             x = torch.from_numpy(x).to(self.device)
         
-            x = x.float()
+            if self.is_half:
+                x = x.half()
         
             # 3. fcpe 모델에 변환된 텐서를 전달합니다.
             f0 = self.model_fcpe.infer_from_audio(x, thred=0.006)
