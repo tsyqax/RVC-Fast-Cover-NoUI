@@ -1,5 +1,6 @@
 from functools import lru_cache
 from time import time as ttime
+import torch.nn.functional as F
 
 import torch.nn as nn
 from typing import Any
@@ -170,6 +171,7 @@ class VC(object):
         index_rate: float,
         version: str,
         protect: float,
+        self.model_rmvpe = None 
     ):
         t0 = ttime()
         feats = torch.from_numpy(audio0)
