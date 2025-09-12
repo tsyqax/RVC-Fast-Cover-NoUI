@@ -306,8 +306,14 @@ class VC(object):
                 x = x.cpu().numpy()
             x = librosa.to_mono(x)
             
-            x = torch.from_numpy(x).to(self.device).float()
-
+            x = torch.from_numpy(x).to(self.device)
+        
+            if self.is_half:
+                x = x.half()
+            else:
+                x = x.float()
+        
+            # 3. fcpe 모델에 변환된 텐서를 전달합니다.
             f0 = self.model_fcpe.infer_from_audio(x, thred=0.006)
 
         f0 *= pow(2, f0_up_key / 12)
@@ -325,18 +331,17 @@ class VC(object):
                 :shape
             ]
 
-        f0 = self.model_fcpe.infer_from_audio(x, thred=0.006)
+        f0bak = f0.copy()
+        f0_mel = 1127 * np.log(1 + f0 / 700)
+        f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
+            f0_mel_max - f0_mel_min
+        ) + 1
+        f0_mel[f0_mel <= 1] = 1
+        f0_mel[f0_mel > 255] = 255
+        f0_coarse = np.rint(f0_mel).astype(np.int)
 
-        # Ensure f0 is a 1D NumPy array before returning
-        if not isinstance(f0, np.ndarray) or f0.ndim == 0:
-            f0 = np.array([f0])
-        
-        f0_mel = f0
-        f0_mel_min = 150 
-        f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (254.0 - f0_mel_min)
-        f0_mel = f0_mel.astype(np.float64)
+        return f0_coarse, f0bak  # 1-0
 
-        return f0_mel, f0
     def vc(
         self,
         model: nn.Module,
@@ -451,7 +456,6 @@ class VC(object):
         protect,
         crepe_hop_length,
         f0_file=None,
-        **kwargs
     ):
         if (
             file_index != ""
@@ -490,21 +494,7 @@ class VC(object):
         t = None
         t1 = ttime()
         audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
-        pitch, pitchf = self.get_f0(
-            input_audio_path,
-            audio, # 이 변수가 'x'에 해당합니다.
-            p_len, # 이 변수는 위에서 정의되어야 합니다.
-            f0_up_key,
-            f0_method,
-            filter_radius,
-            crepe_hop_length
-        )
-    
-        if pitch is not None and pitch.ndim > 0:
-            p_len = pitch.shape[0]
-        else:
-            # 피치 데이터가 없거나 유효하지 않을 경우를 대비하여 0으로 설정
-            p_len = 0
+        p_len = audio_pad.shape[0] // self.window
         inp_f0 = None
         if hasattr(f0_file, "name") == True:
             try:
