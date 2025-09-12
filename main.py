@@ -222,8 +222,6 @@ if __name__ == '__main__':
       exist_check = True
     except:
       song_id = str(uuid.uuid4()).split('-')[0]
-      songs[song_name] = song_id
-      songsave(songs)
 
     input_path0 = os.path.join(os.getcwd(), 'input')
     os.makedirs(input_path0, exist_ok=True)
@@ -276,5 +274,6 @@ if __name__ == '__main__':
     rvc_song(rvc_index_path, rvc_model_path, args.index_rate, rvc_input_path, rvc_output_path, 0, args.rvc_method, 3, args.rms_rate, 0.33, 128)
     
     merge_song(song_name, song_id, args.rvc_name, vocal_sound, other_sound, sep_mode)
-    
+    songs[song_name] = song_id
+    songsave(songs)
     print('DONE!!')
