@@ -288,8 +288,8 @@ class VC(object):
                      os.path.join(BASE_DIR, 'DIR', 'infers', 'fcpe.pt'), device=self.device
                  )
              f0, uv = self.model_fcpe.compute_f0_uv(x, p_len=x.shape[-1])
-             f0 = torch.from_numpy(f0).to(x.device)
-             uv = torch.from_numpy(uv).to(x.device)
+             f0 = torch.from_numpy(f0).to(self.device)
+             uv = torch.from_numpy(uv).to(self.device)
 
         f0 *= pow(2, f0_up_key / 12)
 
