@@ -308,15 +308,26 @@ class VC(object):
 
         if isinstance(f0, torch.Tensor):
             f0bak = f0.clone().detach()
+            f0_mel = 1127 * torch.log(1 + f0 / 700)
+            
+            f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
+                f0_mel_max - f0_mel_min
+            ) + 1
+            f0_mel[f0_mel <= 1] = 1
+            f0_mel[f0_mel > 255] = 255
+            
+            f0_coarse = torch.rint(f0_mel).int().cpu().numpy()
         else:
             f0bak = f0.copy()
-        f0_mel = 1127 * np.log(1 + f0 / 700)
-        f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
-            f0_mel_max - f0_mel_min
-        ) + 1
-        f0_mel[f0_mel <= 1] = 1
-        f0_mel[f0_mel > 255] = 255
-        f0_coarse = np.rint(f0_mel).astype(np.int)
+            f0_mel = 1127 * np.log(1 + f0 / 700)
+            
+            f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
+                f0_mel_max - f0_mel_min
+            ) + 1
+            f0_mel[f0_mel <= 1] = 1
+            f0_mel[f0_mel > 255] = 255
+            f0_coarse = np.rint(f0_mel).astype(np.int)
+
 
         return f0_coarse, f0bak
 
