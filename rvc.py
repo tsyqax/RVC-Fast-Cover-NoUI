@@ -124,10 +124,8 @@ def process_chunk(args):
         version,
         protect,
         crepe_hop_length,
+        p_len
     ) = args
-    # p_len is calculated locally for each chunk
-    audio_chunk = np.pad(audio_chunk, (vc_global.t_pad, vc_global.t_pad), mode="reflect")
-    p_len = audio_chunk.shape[0] // vc_global.window
     
     return vc_global.pipeline(
         hubert_model_global,
@@ -297,6 +295,7 @@ def rvc_infer(
                 version,
                 protect,
                 crepe_hop_length,
+                chunk.shape[0] // vc.window, # 패딩되지 않은 오디오의 p_len 계산
             )
             for chunk in chunks
         ]
@@ -308,9 +307,7 @@ def rvc_infer(
 
     else:
         print("Audio is short or CUDA is not available. Processing serially.")
-        # p_len을 여기서 계산하고 파이프라인에 전달
-        audio_pad = np.pad(audio, (vc.t_pad, vc.t_pad), mode="reflect")
-        p_len = audio_pad.shape[0] // vc.window
+        p_len = audio.shape[0] // vc.window # 패딩되지 않은 오디오의 p_len 계산
         
         audio_opt = vc.pipeline(
             hubert_model,
