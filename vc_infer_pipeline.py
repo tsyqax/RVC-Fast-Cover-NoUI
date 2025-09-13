@@ -208,6 +208,16 @@ class VC(object):
 
         return audio1
 
+    def vc_infer_chunk(chunk, cpt, version, net_g, filter_radius, tgt_sr,
+                   rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_input):
+        out_audio = vc.infer(
+            chunk, net_g, hubert_model,
+            filter_radius, tgt_sr,
+            rms_mix_rate, protect,
+            crepe_hop_length, rvc_model_input
+        )
+        return out_audio
+    
     def pipeline(
         self,
         model,
