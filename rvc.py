@@ -331,7 +331,7 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
              # Store shared memory info, index, and other parameters
              # Pass gpu_id to the worker_initializer if CUDA is available
              gpu_id = i % torch.cuda.device_count() if torch.cuda.is_available() else None
-             chunk_tasks.append((shm.name, shm.shape, shm.dtype, input_path, times, pitch_change, f0_method, index_path,
+             chunk_tasks.append((shm.name, chunk.shape, chunk.dtype, input_path, times, pitch_change, f0_method, index_path,
                                   index_rate, if_f0, filter_radius, rms_mix_rate, protect, crepe_hop_length, i, crossfade_length, gpu_id))
              shm_list.append(shm)
 
@@ -352,7 +352,7 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
             num_processes = min(torch.cuda.device_count(), num_processes) # Limit processes by GPU count if using GPU
 
         # Use multiprocessing Pool with initializer
-        with Pool(processes=num_processes, initializer=initialize_worker, initargs=((model_paths_for_initializer, config_dict_for_initializer),)) as pool:
+        with Pool(processes=num_processes, initializer=initialize_worker, initargs=(model_paths_for_initializer, config_dict_for_initializer)) as pool: # Corrected initargs
             # Map chunk tasks to worker processes
             # Pass the updated chunk tasks including gpu_id
             processed_results = pool.map(process_chunk_task, chunk_tasks)
