@@ -104,9 +104,9 @@ class Config:
 
 def process_chunk(args):
     # This function is executed by a worker process
-    audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length = args
+    audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, p_len = args # p_len 인자 추가
     # Use global models loaded by the initializer
-    return vc_global.pipeline(hubert_model_global, net_g_global, 0, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
+    return vc_global.pipeline(hubert_model_global, net_g_global, 0, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length, p_len) # p_len 인자 전달
 
 def worker_initializer(model_path, hubert_path, device, is_half):
     # This function is called once for each worker process
@@ -166,7 +166,26 @@ def get_vc(device, is_half, config, model_path):
     vc = VC(tgt_sr, config)
     return cpt, version, net_g, tgt_sr, vc
 
-def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_path, hubert_model_path=os.path.join(os.getcwd(), 'infers', 'hubert_base.pt')):
+def rvc_infer(
+    index_path,
+    index_rate,
+    input_path,
+    output_path,
+    pitch_change,
+    f0_method,
+    cpt,
+    version,
+    net_g,
+    filter_radius,
+    tgt_sr,
+    rms_mix_rate,
+    protect,
+    crepe_hop_length,
+    vc,
+    hubert_model,
+    rvc_model_path,
+    hubert_model_path=os.path.join(os.getcwd(), 'infers', 'hubert.pt')
+):
     if f0_method not in ['rmvpe', 'fcpe']:
         print("Warning: f0 method is not supported. Using 'rmvpe'.")
         f0_method = 'rmvpe'
@@ -214,8 +233,10 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
         chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_workers)]
         if len(audio) % num_workers != 0:
             chunks[-1] = np.concatenate((chunks[-1], audio[num_workers * chunk_length:]))
-
-        args_list = [(chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length) for chunk in chunks]
+        
+        # p_len은 pipeline 함수에 전달되어야 하므로 여기서 계산
+        p_len = len(audio) // vc.window
+        args_list = [(chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, p_len) for chunk in chunks] # p_len 추가
 
         # Use Pool with initializer to handle model loading in each worker
         with Pool(processes=num_workers, initializer=worker_initializer, initargs=(rvc_model_path, hubert_model_path, "cuda:0", True)) as p:
