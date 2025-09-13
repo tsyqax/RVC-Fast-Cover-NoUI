@@ -31,7 +31,7 @@ bh, ah = signal.butter(N=5, Wn=48, btype="high", fs=16000)
 @lru_cache(maxsize=1024)
 def get_rmvpe(is_half, device):
     try:
-        model_path = BASE_DIR / "models" / "hubert" / "rmvpe.pt"
+        model_path = BASE_DIR / "DIR" / "infers" / "rmvpe.pt"
         if not model_path.exists():
             raise FileNotFoundError(f"RMVPE model not found at {model_path}")
         return RMVPE(str(model_path), is_half=is_half, device=device)
@@ -43,7 +43,7 @@ def get_rmvpe(is_half, device):
 @lru_cache(maxsize=1024)
 def get_fcpe(is_half, device):
     try:
-        model_path = BASE_DIR / "models" / "hubert" / "fcpe.pt"
+        model_path = BASE_DIR / "DIR" / "infers" / "fcpe.pt"
         if not model_path.exists():
             raise FileNotFoundError(f"FCPE model not found at {model_path}")
         return FCPE(str(model_path), device=device, dtype=torch.float16 if is_half else torch.float32)
