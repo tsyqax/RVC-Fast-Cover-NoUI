@@ -149,10 +149,17 @@ def initialize_worker(model_paths_dict, config_dict_reverted):
         hubert_model_worker = load_hubert(torch.device(device_str), is_half, hubert_model_path)
         # Need to create Config with the *correct* device for VC. Let's pass device_str to Config too.
         cpt, version_worker, net_g_worker, tgt_sr_worker, vc_worker = get_vc(torch.device(device_str), is_half, Config(torch.device(device_str), is_half), rvc_model_path)
+        # print(f"Models loaded successfully in worker {os.getpid()}") # Debug print
     except Exception as e:
-        print(f"Error loading models in worker initializer: {e}")
+        print(f"Error loading models in worker initializer {os.getpid()}: {e}")
+        # Set globals to None explicitly on failure
         hubert_model_worker = None
         rvc_model_worker = None
+        vc_worker = None
+        net_g_worker = None
+        version_worker = None
+        tgt_sr_worker = None
+
 
 def process_chunk_task(chunk_info_with_gpu):
     """
@@ -175,9 +182,11 @@ def process_chunk_task(chunk_info_with_gpu):
             # Continue with default device or handle error
 
 
-    if hubert_model_worker is None or net_g_worker is None:
-         print(f"Models not loaded in worker {os.getpid()}. Cannot process chunk.")
-         return (index, Exception("Models not loaded in worker"))
+    if hubert_model_worker is None or net_g_worker is None or vc_worker is None: # Check all necessary models/objects
+         error_msg = f"Models or VC object not loaded in worker {os.getpid()}. Cannot process chunk {index}."
+         print(error_msg)
+         # Return index and a specific exception indicating model loading failure
+         return (index, Exception(error_msg))
 
 
     try:
@@ -202,7 +211,7 @@ def process_chunk_task(chunk_info_with_gpu):
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"WORKER TASK ERROR in process {os.getpid()}: {e}")
+        print(f"WORKER TASK ERROR in process {os.getpid()} for chunk {index}: {e}")
         return (index, e)
 
 
@@ -305,8 +314,9 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
     overlap_length = int(overlap_sec * 16000) # Overlap length in samples (source SR)
     crossfade_length = int(overlap_sec * tgt_sr) # Crossfade length in samples (target SR) - Use overlap_sec for consistency
 
-    if len(audio) / 16000 > chunk_length_sec: # Use chunk_length_sec for comparison
-        print(f"Audio is longer than {chunk_length_sec} seconds. Starting parallel processing.")
+    # Requirement: Process only music longer than 1 minute (60 seconds) with parallel processing
+    if len(audio) / 16000 > 60:
+        print(f"Audio is longer than 60 seconds ({len(audio)/16000:.2f}s). Starting parallel processing.")
 
         # Split audio into chunks with overlap
         chunks = []
@@ -338,7 +348,7 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
 
         # Prepare model paths and config for the initializer
         model_paths_for_initializer = {
-            'hubert': os.path.join(os.getcwd(), 'infers', 'hubert_base.pt'),
+            'hubert': os.path.join(BASE_DIR, 'DIR', 'infers', 'hubert_base.pt'), # Use BASE_DIR for consistency
             'rvc': rvc_model_input
         }
         config_dict_for_initializer = {
@@ -347,12 +357,14 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
         }
 
         num_chunks = len(chunks)
+        # Requirement: Automatically adjust the maximum number of splits (processes) based on specs
+        # This is already handled by taking the minimum of available resources and number of chunks.
         num_processes = min(cpu_count(), num_chunks)
         if torch.cuda.is_available():
             num_processes = min(torch.cuda.device_count(), num_processes) # Limit processes by GPU count if using GPU
 
         # Use multiprocessing Pool with initializer
-        with Pool(processes=num_processes, initializer=initialize_worker, initargs=(model_paths_for_initializer, config_dict_for_initializer)) as pool: # Corrected initargs
+        with Pool(processes=num_processes, initializer=initialize_worker, initargs=(model_paths_for_initializer, config_dict_for_initializer)) as pool:
             # Map chunk tasks to worker processes
             # Pass the updated chunk tasks including gpu_id
             processed_results = pool.map(process_chunk_task, chunk_tasks)
@@ -402,8 +414,8 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
 
 
     else:
-        # Audio is shorter than chunk_length_sec, process without parallelization
-        print(f"Audio is shorter than {chunk_length_sec} seconds. Processing sequentially.")
+        # Audio is shorter than 60 seconds, process without parallelization
+        print(f"Audio is shorter than 60 seconds ({len(audio)/16000:.2f}s). Processing sequentially.")
         # Ensure sequential path also handles device correctly if running on GPU
         audio = audio.copy() # Ensure audio is writable if modified in pipeline
 
