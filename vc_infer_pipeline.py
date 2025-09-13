@@ -294,8 +294,14 @@ class VC(object):
              if f0.ndim == 2 and f0.shape[0] > 1:
                  f0 = f0[0]
             
-             f0 = f0.squeeze(0).cpu().numpy()
-             uv = uv.squeeze(0).cpu().numpy()
+             f0 = f0[0] if f0.ndim == 2 else f0
+             uv = uv[0] if uv.ndim == 2 else uv
+
+             f0 = f0.cpu().numpy()
+             uv = uv.cpu().numpy()
+
+             f0 = f0[:p_len]
+             uv = uv[:p_len]
 
         f0 *= pow(2, f0_up_key / 12)
 
