@@ -288,10 +288,14 @@ class VC(object):
                      os.path.join(BASE_DIR, 'DIR', 'infers', 'fcpe.pt'), device=self.device
                  )
              f0, uv = self.model_fcpe.compute_f0_uv(x, p_len=p_len)
+            
+             # Squeeze the tensor safely.
+             # If f0 has a batch dimension, select the first element.
+             if f0.ndim == 2 and f0.shape[0] > 1:
+                 f0 = f0[0]
+            
              f0 = f0.squeeze(0).cpu().numpy()
-             f0 = f0[:p_len]
              uv = uv.squeeze(0).cpu().numpy()
-             uv = uv[:p_len]
 
         f0 *= pow(2, f0_up_key / 12)
 
