@@ -14,53 +14,53 @@ import pyworld
 import sys
 import torch
 import torch.nn.functional as F
-import torchcrepe
-import traceback
 from scipy import signal
 from torch import Tensor
-from fcpe import FCPE # Assuming FCPE class is correctly imported from fcpe.py
+from fcpe import FCPE
 from rmvpe import RMVPE
+from pathlib import Path
+import traceback
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-now_dir = os.path.join(BASE_DIR, 'src')
-sys.path.append(now_dir)
+BASE_DIR = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+now_dir = BASE_DIR / "src"
+sys.path.append(str(now_dir))
 
 bh, ah = signal.butter(N=5, Wn=48, btype="high", fs=16000)
 
-input_audio_path2wav = {}
+
+@lru_cache(maxsize=1024)
+def get_rmvpe(is_half, device):
+    try:
+        model_path = BASE_DIR / "models" / "hubert" / "rmvpe.pt"
+        if not model_path.exists():
+            raise FileNotFoundError(f"RMVPE model not found at {model_path}")
+        return RMVPE(str(model_path), is_half=is_half, device=device)
+    except Exception as e:
+        print(f"Failed to load RMVPE model: {e}")
+        return None
 
 
-def cache_harvest_f0(input_audio_path, fs, f0max, f0min, frame_period):
-    audio = input_audio_path2wav[input_audio_path]
-    f0, t = pyworld.harvest(
-        audio,
-        fs=fs,
-        f0_ceil=f0max,
-        f0_floor=f0min,
-        frame_period=frame_period,
-    )
-    f0 = pyworld.stonemask(audio, f0, t, fs)
-    return f0
+@lru_cache(maxsize=1024)
+def get_fcpe(is_half, device):
+    try:
+        model_path = BASE_DIR / "models" / "hubert" / "fcpe.pt"
+        if not model_path.exists():
+            raise FileNotFoundError(f"FCPE model not found at {model_path}")
+        return FCPE(str(model_path), device=device, dtype=torch.float16 if is_half else torch.float32)
+    except Exception as e:
+        print(f"Failed to load FCPE model: {e}")
+        return None
 
 
 def change_rms(data1, sr1, data2, sr2, rate):
-    rms1 = librosa.feature.rms(
-        y=data1, frame_length=sr1 // 2 * 2, hop_length=sr1 // 2
-    )
+    rms1 = librosa.feature.rms(y=data1, frame_length=sr1 // 2 * 2, hop_length=sr1 // 2)
     rms2 = librosa.feature.rms(y=data2, frame_length=sr2 // 2 * 2, hop_length=sr2 // 2)
     rms1 = torch.from_numpy(rms1)
-    rms1 = F.interpolate(
-        rms1.unsqueeze(0), size=data2.shape[0], mode="linear"
-    ).squeeze()
+    rms1 = F.interpolate(rms1.unsqueeze(0), size=data2.shape[0], mode="linear").squeeze()
     rms2 = torch.from_numpy(rms2)
-    rms2 = F.interpolate(
-        rms2.unsqueeze(0), size=data2.shape[0], mode="linear"
-    ).squeeze()
+    rms2 = F.interpolate(rms2.unsqueeze(0), size=data2.shape[0], mode="linear").squeeze()
     rms2 = torch.max(rms2, torch.zeros_like(rms2) + 1e-6)
-    data2 *= (
-        torch.pow(rms1, torch.tensor(1 - rate))
-        * torch.pow(rms2, torch.tensor(rate - 1))
-    ).numpy()
+    data2 *= (torch.pow(rms1, torch.tensor(1 - rate)) * torch.pow(rms2, torch.tensor(rate - 1))).numpy()
     return data2
 
 
@@ -82,138 +82,62 @@ class VC(object):
         self.t_center = self.sr * self.x_center
         self.t_max = self.sr * self.x_max
         self.device = config.device
-        # Initialize models here or load them on demand efficiently
         self.model_rmvpe = None
-        self.model_fcpe = None # This will be an instance of FCPEInfer
-
-
-    def get_optimal_torch_device(self, index: int = 0) -> torch.device:
-        if torch.cuda.is_available():
-            return torch.device(
-                f"cuda:{index % torch.cuda.device_count()}"
-            )
-        elif torch.backends.mps.is_available():
-            return torch.device("mps")
-        return torch.device("cpu")
+        self.model_fcpe = None
 
     def get_f0(
         self,
-        input_audio_path,
-        x,
-        p_len,
+        x: np.ndarray,
+        p_len: int,
         f0_up_key,
-        f0_method,
+        f0_method: str,
         filter_radius,
         crepe_hop_length,
-        inp_f0=None,
     ):
-        global input_audio_path2wav
-        time_step = self.window / self.sr * 1000
         f0_min = 50
         f0_max = 1100
-        f0_mel_min = 1127 * np.log(1 + f0_min / 700)
-        f0_mel_max = 1127 * np.log(1 + f0_max / 700)
-        f0 = None
-
+        
         if f0_method == "rmvpe":
             if self.model_rmvpe is None:
-                # Load RMVPE model if not already loaded
-                self.model_rmvpe = RMVPE(
-                    os.path.join(BASE_DIR, 'DIR', 'infers', 'rmvpe.pt'), is_half=self.is_half, device=self.device
-                )
-            # RMVPE infer_from_audio returns f0 directly
+                self.model_rmvpe = get_rmvpe(self.is_half, self.device)
+                if self.model_rmvpe is None:
+                    raise RuntimeError("RMVPE model is not loaded.")
             f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
+            
         elif f0_method == "fcpe":
-            # Load FCPE model (FCPEInfer) if not already loaded
             if self.model_fcpe is None:
-                 # Assuming FCPEInfer needs model path, device, and dtype
-                 # You might need to adjust the path and parameters based on your setup
-                 # The FCPEInfer class from fcpe.py expects model_path, device, and dtype
-                 try:
-                     # Assuming fcpe.pt is the model file for FCPE
-                     fcpe_model_path = os.path.join(BASE_DIR, 'DIR', 'infers', 'fcpe.pt') # Adjust path if needed
-                     self.model_fcpe = FCPE(fcpe_model_path, device=self.device, dtype=torch.float16 if self.is_half else torch.float32)
-                 except Exception as e:
-                     print(f"Error loading FCPE model: {e}")
-                     self.model_fcpe = None # Ensure model is None on failure
-                     # Fallback to RMVPE if FCPE model loading fails
-                     if self.model_rmvpe is None:
-                          self.model_rmvpe = RMVPE(
-                              os.path.join(BASE_DIR, 'DIR', 'infers', 'rmvpe.pt'), is_half=self.is_half, device=self.device
-                          )
-                     f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
-                     print("Falling back to RMVPE for F0 extraction due to FCPE model loading error.")
-                     return None, None # Return None if fallback happens due to loading error
-
-
-            # Implement FCPE inference logic using the loaded model
-            # The FCPEInfer.__call__ method takes audio (numpy array or torch tensor) and sample rate
-            # It returns the F0 values.
-            try:
-                # Ensure audio data 'x' is in the correct format (numpy or tensor) and device for FCPEInfer
-                # According to fcpe.py, FCPEInfer.__call__ takes audio as torch.FloatTensor
-                x_tensor = torch.from_numpy(x).float().to(self.device) # Ensure data is float tensor on correct device
-                # The FCPEInfer.__call__ method returns f0. Let's check its signature and output.
-                # Based on fcpe.py, FCPEInfer.__call__ returns f0 as torch.Tensor [1, N, 1] or [1, N]
-                # We need a numpy array of shape [N] for pitch and pitchf.
-                f0_result = self.model_fcpe(x_tensor, sr=self.sr)
-                if isinstance(f0_result, torch.Tensor):
-                     f0 = f0_result.squeeze().cpu().numpy() # Convert tensor output to numpy array [N]
+                self.model_fcpe = get_fcpe(self.is_half, self.device)
+                if self.model_fcpe is None:
+                    print("FCPE model not found. Falling back to RMVPE.")
+                    self.model_rmvpe = get_rmvpe(self.is_half, self.device)
+                    if self.model_rmvpe is None:
+                        raise RuntimeError("Neither FCPE nor RMVPE model could be loaded.")
+                    f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
                 else:
-                     f0 = f0_result # Assume it's already numpy if not a tensor (less likely based on fcpe.py)
-
-            except Exception as e:
-                 print(f"Error during FCPE inference: {e}")
-                 # Fallback to RMVPE on FCPE inference errors
-                 if self.model_rmvpe is None:
-                      self.model_rmvpe = RMVPE(
-                          os.path.join(BASE_DIR, 'DIR', 'infers', 'rmvpe.pt'), is_half=self.is_half, device=self.device
-                      )
-                 f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
-                 print("Falling back to RMVPE for F0 extraction due to FCPE inference error.")
-
-
+                    x_tensor = torch.from_numpy(x).float().to(self.device)
+                    f0 = self.model_fcpe(x_tensor, sr=self.sr).squeeze().cpu().numpy()
         else:
             print(f"Warning: f0_method '{f0_method}' is not supported. Using 'rmvpe' instead.")
+            self.model_rmvpe = get_rmvpe(self.is_half, self.device)
             if self.model_rmvpe is None:
-                self.model_rmvpe = RMVPE(
-                    os.path.join(BASE_DIR, 'DIR', 'infers', 'rmvpe.pt'), is_half=self.is_half, device=self.device
-                )
+                raise RuntimeError("RMVPE model is not loaded.")
             f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
 
-        if f0 is None:
-             # Handle cases where f0 could not be extracted by the chosen method or fallback
-             print(f"Warning: F0 extraction failed with method '{f0_method}'. F0 will be treated as None.")
-             return None, None # Return None for both pitch and pitchf
-
-        # Ensure f0 is a numpy array before processing
-        if not isinstance(f0, np.ndarray):
-             f0 = np.array(f0)
-
-        if isinstance(f0, float): # Handle case where f0 might still be a float after conversion
-            f0 = np.array([f0])
-
-        # Ensure f0 has at least one dimension if it's an empty array after conversion
-        if f0.ndim == 0 and f0.size == 0:
-             f0 = np.array([])
-
+        if f0 is None or len(f0) == 0:
+            print("F0 extraction failed. Returning empty arrays.")
+            return np.array([], dtype=np.int64), np.array([], dtype=np.float32)
 
         f0bak = f0.copy()
-        # Ensure f0 is not None before calculating f0_mel
-        if f0 is not None and len(f0) > 0: # Added check for empty f0 array
-            f0_mel = 1127 * np.log(1 + f0 / 700)
-            f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
-                f0_mel_max - f0_mel_min
-            ) + 1
-            f0_mel[f0_mel <= 1] = 1
-            f0_mel[f0_mel > 255] = 255
-            # Ensure the result is integer type
-            f0_coarse = np.rint(f0_mel).astype(np.int)
-        else:
-            # Create an empty array with the expected shape if f0 is None or empty
-            # Need to determine the expected length based on p_len or audio length
-            # For now, create an empty array with int type
-            f0_coarse = np.zeros_like(f0bak if f0bak is not None else [], dtype=np.int) # Handle case where f0bak might also be None
+        
+        f0_mel = 1127 * np.log(1 + f0 / 700)
+        f0_mel_min = 1127 * np.log(1 + f0_min / 700)
+        f0_mel_max = 1127 * np.log(1 + f0_max / 700)
+        f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
+            f0_mel_max - f0_mel_min
+        ) + 1
+        f0_mel[f0_mel <= 1] = 1
+        f0_mel[f0_mel > 255] = 255
+        f0_coarse = np.rint(f0_mel).astype(np.int64)
 
         return f0_coarse, f0bak
 
@@ -225,14 +149,12 @@ class VC(object):
         audio0: np.ndarray,
         pitch: torch.Tensor,
         pitchf: torch.Tensor,
-        times: list,
         index: Any,
         big_npy: np.ndarray,
         index_rate: float,
         version: str,
         protect: float,
     ):
-        # Removed timing t0, t1, t2 from here as it's handled in pipeline
         feats = torch.from_numpy(audio0)
         if self.is_half:
             feats = feats.half()
@@ -243,7 +165,6 @@ class VC(object):
         assert feats.dim() == 1, feats.dim()
         feats = feats.view(1, -1)
         padding_mask = torch.BoolTensor(feats.shape).to(self.device).fill_(False)
-
         inputs = {
             "source": feats.to(self.device),
             "padding_mask": padding_mask,
@@ -257,11 +178,7 @@ class VC(object):
         if protect < 0.5 and pitch is not None and pitchf is not None:
             feats0 = feats.clone()
 
-        if (
-            isinstance(index, type(None)) == False
-            and isinstance(big_npy, type(None)) == False
-            and index_rate != 0
-        ):
+        if isinstance(index, type(None)) == False and isinstance(big_npy, type(None)) == False and index_rate != 0:
             npy = feats[0].cpu().numpy()
             if self.is_half:
                 npy = npy.astype("float32")
@@ -271,41 +188,23 @@ class VC(object):
             npy = np.sum(big_npy[ix] * np.expand_dims(weight, axis=2), axis=1)
             if self.is_half:
                 npy = npy.astype("float16")
-            feats = (
-                torch.from_numpy(npy).unsqueeze(0).to(self.device) * index_rate
-                + (1 - index_rate) * feats
-            )
+            feats = torch.from_numpy(npy).unsqueeze(0).to(self.device) * index_rate + (1 - index_rate) * feats
 
         feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
         if protect < 0.5 and pitch is not None and pitchf is not None:
-            feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(
-                0, 2, 1
-            )
+            feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
 
-        # p_len calculation might need adjustment if processing padded chunks
-        # For parallel processing, p_len might be better derived from the chunk length
-        # or handled differently. Let's keep the current calculation based on audio0 for now.
         p_len = audio0.shape[0] // 320
-
 
         with torch.no_grad():
             if pitch is not None and pitchf is not None:
-                audio1 = (
-                    (net_g.infer(feats, p_len, pitch, pitchf, sid)[0][0, 0])
-                    .data.cpu()
-                    .float()
-                    .numpy()
-                )
+                audio1 = (net_g.infer(feats, p_len, pitch, pitchf, sid)[0][0, 0]).data.cpu().float().numpy()
             else:
-                audio1 = (
-                    (net_g.infer(feats, p_len, sid)[0][0, 0]).data.cpu().float().numpy()
-                )
-
+                audio1 = (net_g.infer(feats, p_len, sid)[0][0, 0]).data.cpu().float().numpy()
+        
         del feats, padding_mask
         if protect < 0.5 and pitch is not None and pitchf is not None:
-             del feats0 # Delete if created
-
-        # Moved torch.cuda.empty_cache() to pipeline or worker task
+            del feats0
 
         return audio1
 
@@ -331,130 +230,77 @@ class VC(object):
         crepe_hop_length,
         f0_file=None,
     ):
-        # Note: This pipeline method currently handles the full audio or a chunk passed from rvc.py.
-        # Timing variables t0, t1, t2 are now defined here.
-        t0 = ttime() # Start timing for this chunk/audio segment
+        t0 = ttime()
 
-        if (
-            file_index != ""
-            and os.path.exists(file_index) == True
-            and index_rate != 0
-        ):
+        index = big_npy = None
+        if file_index and Path(file_index).exists() and index_rate != 0:
             try:
                 index = faiss.read_index(file_index)
                 big_npy = index.reconstruct_n(0, index.ntotal)
-            except:
+            except Exception:
                 traceback.print_exc()
-                index = big_npy = None
-        else:
-            index = big_npy = None
 
         audio = signal.filtfilt(bh, ah, audio)
         audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
         p_len = audio_pad.shape[0] // self.window
         inp_f0 = None
-        if hasattr(f0_file, "name") == True:
+        if f0_file and hasattr(f0_file, "name"):
             try:
                 with open(f0_file.name, "r") as f:
                     lines = f.read().strip("\n").split("\n")
-                inp_f0 = []
-                for line in lines:
-                    inp_f0.append([float(i) for i in line.split(",")])
-                inp_f0 = np.array(inp_f0, dtype="float32")
-            except:
+                inp_f0 = np.array([[float(i) for i in line.split(",")] for line in lines], dtype="float32")
+            except Exception:
                 traceback.print_exc()
 
         sid = torch.tensor(sid, device=self.device).unsqueeze(0).long()
         pitch, pitchf = None, None
+        
         if if_f0 == 1:
-            pitch, pitchf = self.get_f0(
-                input_audio_path,
-                audio_pad,
-                p_len,
-                f0_up_key,
-                f0_method,
-                filter_radius,
-                crepe_hop_length,
-                inp_f0,
-            )
-            # Check if F0 extraction was successful
-            if pitch is None or pitchf is None:
-                 print("F0 extraction failed. Cannot proceed with inference.")
-                 # Reset times or log failure if needed
-                 times[0] += ttime() - t0 # Account for time spent before failure
-                 return None # Return None or raise an error
-
-            # Ensure pitch and pitchf have the correct length after get_f0
-            # get_f0 returns f0_coarse and f0bak, which should correspond to audio_pad length // window
-            # p_len is calculated based on audio_pad length // window
-            # So pitch and pitchf should already be of length p_len if get_f0 is correct.
-            # The slicing [:p_len] might be redundant if get_f0 is implemented correctly,
-            # but keeping it for safety if get_f0 returns longer arrays.
+            try:
+                pitch, pitchf = self.get_f0(
+                    audio_pad, p_len, f0_up_key, f0_method, filter_radius, crepe_hop_length
+                )
+            except Exception as e:
+                print(f"F0 extraction failed: {e}. Cannot proceed with inference.")
+                return None
+            
             pitch = pitch[:p_len]
-            pitchf = pitchf[:p_len]
-            # Ensure pitchf is float32 for MPS if needed
-            if self.device.type == "mps": # Check device type explicitly
-                pitchf = pitchf.astype(np.float32)
+            pitchf = pitchf[:p_len].astype(np.float32)
             pitch = torch.tensor(pitch, device=self.device).unsqueeze(0).long()
             pitchf = torch.tensor(pitchf, device=self.device).unsqueeze(0).float()
-
-        t1 = ttime() # Time after F0 extraction (or skipped F0)
-        # Update times list - times[0] was time before F0/VC, times[1] F0, times[2] VC
-        # Adjusting timing logic to be simpler: times[0] = F0 time, times[1] = VC time
-        # We'll calculate F0 time and VC time within this pipeline call for the chunk.
-        f0_time = t1 - t0 if if_f0 == 1 else 0
-        # times[1] += f0_time # Accumulate F0 time
-
-        # Perform VC on the (potentially padded) audio
+            
+        t1 = ttime()
+        
         audio_opt = self.vc(
             model,
             net_g,
             sid,
-            audio_pad, # Process the padded audio
+            audio_pad,
             pitch,
             pitchf,
-            # Pass local timing variables to vc if needed there, or handle timing here
-            [0, 0, 0], # Pass dummy times list to vc to avoid modifying the worker's times list
             index,
             big_npy,
             index_rate,
             version,
             protect,
-        )[self.t_pad_tgt : -self.t_pad_tgt] # Remove padding from the output
-
-        t2 = ttime() # Time after VC inference
-        vc_time = t2 - t1
-        # times[2] += vc_time # Accumulate VC time
-
-        # The passed 'times' list from rvc.py is intended for main process timing.
-        # Inside the worker, let's return the timing for *this chunk's* F0 and VC stages
-        # so the main process can potentially sum them up or analyze.
-        # However, the current rvc.py worker expects just the audio result and index.
-        # Let's keep the passed 'times' list as a placeholder or for future use,
-        # but ensure t0, t1, t2 are local and defined.
+        )[self.t_pad_tgt : -self.t_pad_tgt]
+        
+        t2 = ttime()
 
         if rms_mix_rate != 1:
-            # Note: If processing chunks, change_rms might need adjustment or applied after merging.
-            # Applies RMS change based on original audio (audio) and processed audio (audio_opt)
-            # This might be less accurate when processing chunks independently.
-            # Consider applying this after merging the final audio.
             audio_opt = change_rms(audio, 16000, audio_opt, tgt_sr, rms_mix_rate)
 
         if resample_sr >= 16000 and tgt_sr != resample_sr:
-            audio_opt = librosa.resample(
-                audio_opt, orig_sr=tgt_sr, target_sr=resample_sr
-            )
+            audio_opt = librosa.resample(audio_opt, orig_sr=tgt_sr, target_sr=resample_sr)
+        
         audio_max = np.abs(audio_opt).max() / 0.99
         max_int16 = 32768
         if audio_max > 1:
             max_int16 /= audio_max
         audio_opt = (audio_opt * max_int16).astype(np.int16)
+        
         del pitch, pitchf, sid
-        # Clean up CUDA cache in worker after processing each chunk
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-
-        # Return the processed audio chunk and potentially timing info for this chunk
-        # For now, just returning the audio chunk as expected by rvc.py worker
-        # If timing info per chunk is needed in main process, modify rvc.py worker to expect it
+            
         return audio_opt
