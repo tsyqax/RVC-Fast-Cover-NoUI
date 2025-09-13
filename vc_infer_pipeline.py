@@ -51,6 +51,15 @@ def get_fcpe(is_half, device):
         print(f"Failed to load FCPE model: {e}")
         return None
 
+def vc_infer_chunk(chunk, cpt, version, net_g, filter_radius, tgt_sr,
+                   rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_input):
+    out_audio = vc.infer(
+            chunk, net_g, hubert_model,
+            filter_radius, tgt_sr,
+            rms_mix_rate, protect,
+            crepe_hop_length, rvc_model_input
+        )
+    return out_audio
 
 def change_rms(data1, sr1, data2, sr2, rate):
     rms1 = librosa.feature.rms(y=data1, frame_length=sr1 // 2 * 2, hop_length=sr1 // 2)
@@ -207,16 +216,6 @@ class VC(object):
             del feats0
 
         return audio1
-
-    def vc_infer_chunk(chunk, cpt, version, net_g, filter_radius, tgt_sr,
-                   rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_input):
-        out_audio = vc.infer(
-            chunk, net_g, hubert_model,
-            filter_radius, tgt_sr,
-            rms_mix_rate, protect,
-            crepe_hop_length, rvc_model_input
-        )
-        return out_audio
     
     def pipeline(
         self,
