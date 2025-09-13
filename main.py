@@ -288,7 +288,9 @@ if __name__ == '__main__':
     rvc_input_path = os.path.join(rvc_input_path0, 'rvc_vocal.mp3')
 
     rvc_song(rvc_index_path, rvc_model_path, args.index_rate, rvc_input_path, rvc_output_path, 0, args.rvc_method, 3, args.rms_rate, 0.4, 128)
-    subprocess.run(['ffmpeg', '-i', rvc_output_path, '-codec:a', 'libmp3lame', '-b:a', '192k', '-y', rvc_output_path],check=True)
+    temp_path = os.path.join(os.getcwd(), 'to_merge', 'temp_vocal_standardized.mp3')
+    subprocess.run(['ffmpeg', '-i', rvc_output_path, '-codec:a', 'libmp3lame', '-b:a', '192k', '-y', temp_path], check=True)
+    subprocess.run(['mv', temp_path, rvc_output_path], check=True)
     merge_song(song_name, song_id, args.rvc_name, vocal_sound, other_sound, sep_mode)
     songs[song_name] = song_id
     songsave(songs)
