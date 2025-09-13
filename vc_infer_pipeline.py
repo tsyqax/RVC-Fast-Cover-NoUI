@@ -285,7 +285,7 @@ class VC(object):
                  from fcpe import FCPE
 
                  self.model_fcpe = FCPE(
-                     os.path.join(BASE_DIR, 'DIR', 'infers', 'fcpe.pt'), is_half=self.is_half, device=self.device
+                     os.path.join(BASE_DIR, 'DIR', 'infers', 'fcpe.pt'), device=self.device
                  )
              f0 = self.model_fcpe.infer_from_audio(x, thred=0.006)
 
