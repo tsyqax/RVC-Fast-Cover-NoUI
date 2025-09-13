@@ -326,7 +326,7 @@ class VC(object):
             ) + 1
             f0_mel[f0_mel <= 1] = 1
             f0_mel[f0_mel > 255] = 255
-            f0_coarse = np.rint(f0_mel).astype(np.int)
+            f0_coarse = torch.round(f0_mel).int().cpu().numpy()
 
 
         return f0_coarse, f0bak
@@ -400,7 +400,6 @@ class VC(object):
         t2 = ttime()
         times[2] += t2 - t1
         with torch.no_grad():
-            # p_len을 텐서로 변환
             p_len_tensor = torch.LongTensor([p_len]).to(self.device)
             if pitch != None and pitchf != None:
                 audio1 = (
@@ -441,7 +440,7 @@ class VC(object):
         version,
         protect,
         crepe_hop_length,
-        p_len, # 이 줄은 이미 추가되어 있습니다.
+        p_len,
         f0_file=None,
     ):
         if (
@@ -461,22 +460,16 @@ class VC(object):
         audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
         opt_ts = []
         if audio_pad.shape[0] > self.t_max:
-            # 기존의 오류가 있는 루프를 효율적인 np.convolve로 대체
             audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
-            # t 값을 오디오 길이에 맞춰 조정하고 슬라이딩 윈도우 합 배열의 길이를 고려
-            # t는 원래 audio 배열의 인덱스를 나타냅니다.
             for t in range(self.t_center, audio.shape[0], self.t_center):
-                # audio_sum의 인덱스를 원래 audio 배열의 인덱스로부터 계산합니다.
                 audio_sum_idx = max(0, t - self.window // 2)
                 
-                # t_query 범위 내의 가장 조용한 지점을 찾습니다.
                 local_sum = audio_sum[audio_sum_idx - self.t_query // 2 : audio_sum_idx + self.t_query // 2]
                 if local_sum.size == 0:
                     continue
                 
                 min_index_local = np.argmin(local_sum)
                 
-                # audio 배열에 대한 실제 분할 지점 인덱스를 계산합니다.
                 split_point = (audio_sum_idx - self.t_query // 2) + min_index_local
                 
                 opt_ts.append(split_point)
