@@ -329,7 +329,7 @@ class VC(object):
         index_rate,
         version,
         protect,
-        p_len # 이 줄을 추가했습니다.
+        p_len
     ):
         feats = torch.from_numpy(audio0)
         if self.is_half:
@@ -384,16 +384,18 @@ class VC(object):
         t2 = ttime()
         times[2] += t2 - t1
         with torch.no_grad():
+            # p_len을 텐서로 변환
+            p_len_tensor = torch.LongTensor([p_len]).to(self.device)
             if pitch != None and pitchf != None:
                 audio1 = (
-                    (net_g.infer(feats, p_len, pitch, pitchf, sid)[0][0, 0])
+                    (net_g.infer(feats, p_len_tensor, pitch, pitchf, sid)[0][0, 0])
                     .data.cpu()
                     .float()
                     .numpy()
                 )
             else:
                 audio1 = (
-                    (net_g.infer(feats, p_len, sid)[0][0, 0]).data.cpu().float().numpy()
+                    (net_g.infer(feats, p_len_tensor, sid)[0][0, 0]).data.cpu().float().numpy()
                 )
         del feats, padding_mask
         if torch.cuda.is_available():
@@ -423,6 +425,7 @@ class VC(object):
         version,
         protect,
         crepe_hop_length,
+        p_len, # 이 줄은 이미 추가되어 있습니다.
         f0_file=None,
     ):
         if (
@@ -439,7 +442,7 @@ class VC(object):
         else:
             index = big_npy = None
         audio = signal.filtfilt(bh, ah, audio)
-        audio_pad = np.pad(audio, (self.window // 2, self.window // 2), mode="reflect")
+        audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
         opt_ts = []
         if audio_pad.shape[0] > self.t_max:
             audio_sum = np.zeros_like(audio)
@@ -458,8 +461,6 @@ class VC(object):
         audio_opt = []
         t = None
         t1 = ttime()
-        audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
-        p_len = audio_pad.shape[0] // self.window
         inp_f0 = None
         if hasattr(f0_file, "name") == True:
             try:
@@ -509,7 +510,7 @@ class VC(object):
                         index_rate,
                         version,
                         protect,
-                        (t + self.t_pad2) // self.window - s // self.window # 이 줄을 추가했습니다.
+                        (t + self.t_pad2) // self.window - s // self.window
                     )[self.t_pad_tgt : -self.t_pad_tgt]
                 )
             else:
@@ -527,7 +528,7 @@ class VC(object):
                         index_rate,
                         version,
                         protect,
-                        (t + self.t_pad2) // self.window - s // self.window # 이 줄을 추가했습니다.
+                        (t + self.t_pad2) // self.window - s // self.window
                     )[self.t_pad_tgt : -self.t_pad_tgt]
                 )
             s = t
@@ -546,7 +547,7 @@ class VC(object):
                     index_rate,
                     version,
                     protect,
-                    p_len - t // self.window if t is not None else p_len # 이 줄을 추가했습니다.
+                    p_len - t // self.window if t is not None else p_len
                 )[self.t_pad_tgt : -self.t_pad_tgt]
             )
         else:
@@ -564,7 +565,7 @@ class VC(object):
                     index_rate,
                     version,
                     protect,
-                    p_len - t // self.window if t is not None else p_len # 이 줄을 추가했습니다.
+                    p_len - t // self.window if t is not None else p_len
                 )[self.t_pad_tgt : -self.t_pad_tgt]
             )
         audio_opt = np.concatenate(audio_opt)
