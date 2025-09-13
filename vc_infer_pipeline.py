@@ -287,9 +287,11 @@ class VC(object):
                  self.model_fcpe = FCPE(
                      os.path.join(BASE_DIR, 'DIR', 'infers', 'fcpe.pt'), device=self.device
                  )
-             f0, uv = self.model_fcpe.compute_f0_uv(x, p_len=x.shape[-1])
-             f0 = torch.from_numpy(f0).to(self.device)
-             uv = torch.from_numpy(uv).to(self.device)
+             f0, uv = self.model_fcpe.compute_f0_uv(x, p_len=p_len)
+             f0 = f0.squeeze(0).cpu().numpy()
+             f0 = f0[:p_len]
+             uv = uv.squeeze(0).cpu().numpy()
+             uv = uv[:p_len]
 
         f0 *= pow(2, f0_up_key / 12)
 
@@ -459,6 +461,38 @@ class VC(object):
             index = big_npy = None
         audio = signal.filtfilt(bh, ah, audio)
         audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
+
+        p_len = audio_pad.shape[0] // self.window
+        pitch, pitchf = None, None
+        if if_f0 == 1:
+            pitch, pitchf = self.get_f0(
+                input_audio_path,
+                audio_pad,
+                p_len,
+                f0_up_key,
+                f0_method,
+                filter_radius,
+                crepe_hop_length,
+                inp_f0,
+            )
+            
+            # pitch와 pitchf가 정확한 길이와 데이터를 가지고 있는지 확인
+            if len(pitch) != p_len:
+                print(f"Warning: F0 length mismatch. Expected {p_len}, got {len(pitch)}. Resampling...")
+                pitch = np.interp(
+                    np.arange(0, len(pitch) * p_len, len(pitch)) / p_len,
+                    np.arange(0, len(pitch)),
+                    pitch,
+                )
+                pitchf = np.interp(
+                    np.arange(0, len(pitchf) * p_len, len(pitchf)) / p_len,
+                    np.arange(0, len(pitchf)),
+                    pitchf,
+                )
+            
+            pitch = torch.tensor(pitch, device=self.device).unsqueeze(0).long()
+            pitchf = torch.tensor(pitchf, device=self.device).unsqueeze(0).float()
+        
         opt_ts = []
         if audio_pad.shape[0] > self.t_max:
             audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
@@ -492,23 +526,52 @@ class VC(object):
                 traceback.print_exc()
         sid = torch.tensor(sid, device=self.device).unsqueeze(0).long()
         pitch, pitchf = None, None
+        for t in opt_ts:
+            t = t // self.window * self.window
+            
+            # 각 오디오 조각의 시작/끝 인덱스 계산
+            start_idx = s // self.window
+            end_idx = (t + self.t_pad2) // self.window
+            
+            if if_f0 == 1:
+                audio_opt.append(
+                    self.vc(
+                        model,
+                        net_g,
+                        sid,
+                        audio_pad[s : t + self.t_pad2 + self.window],
+                        pitch[:, start_idx : end_idx], # F0 슬라이싱
+                        pitchf[:, start_idx : end_idx], # F0 슬라이싱
+                        times,
+                        index,
+                        big_npy,
+                        index_rate,
+                        version,
+                        protect,
+                        (t + self.t_pad2) // self.window - s // self.window
+                    )[self.t_pad_tgt : -self.t_pad_tgt]
+                )
+            s = t
+        start_idx = t // self.window if t is not None else 0
+        end_idx = p_len
         if if_f0 == 1:
-            pitch, pitchf = self.get_f0(
-                input_audio_path,
-                audio_pad,
-                p_len,
-                f0_up_key,
-                f0_method,
-                filter_radius,
-                crepe_hop_length,
-                inp_f0,
+            audio_opt.append(
+                self.vc(
+                    model,
+                    net_g,
+                    sid,
+                    audio_pad[t:],
+                    pitch[:, start_idx : end_idx], # F0 슬라이싱
+                    pitchf[:, start_idx : end_idx], # F0 슬라이싱
+                    times,
+                    index,
+                    big_npy,
+                    index_rate,
+                    version,
+                    protect,
+                    p_len - start_idx
+                )[self.t_pad_tgt : -self.t_pad_tgt]
             )
-            pitch = pitch[:p_len]
-            pitchf = pitchf[:p_len]
-            if self.device == "mps":
-                pitchf = pitchf.astype(np.float32)
-            pitch = torch.tensor(pitch, device=self.device).unsqueeze(0).long()
-            pitchf = torch.tensor(pitchf, device=self.device).unsqueeze(0).float()
         t2 = ttime()
         times[1] += t2 - t1
         for t in opt_ts:
