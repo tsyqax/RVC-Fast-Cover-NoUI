@@ -1,7 +1,21 @@
-import numpy as np
-import multiprocessing as mp
-import gc
-from vc_infer_pipeline import vc_infer_chunk
+from multiprocessing import cpu_count, Pool
+from pathlib import Path
+
+import torch
+from fairseq import checkpoint_utils
+from scipy.io import wavfile
+
+from infer_pack.models import (
+    SynthesizerTrnMs256NSFsid,
+    SynthesizerTrnMs256NSFsid_nono,
+    SynthesizerTrnMs768NSFsid,
+    SynthesizerTrnMs768NSFsid_nono,
+)
+from my_utils import load_audio
+from vc_infer_pipeline import VC
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
 
 class Config:
     def __init__(self, device, is_half):
@@ -17,11 +31,11 @@ class Config:
             i_device = int(self.device.split(":")[-1])
             self.gpu_name = torch.cuda.get_device_name(i_device)
             if (
-                ("16" in self.gpu_name and "V100" not in self.gpu_name.upper())
-                or "P40" in self.gpu_name.upper()
-                or "1060" in self.gpu_name
-                or "1070" in self.gpu_name
-                or "1080" in self.gpu_name
+                    ("16" in self.gpu_name and "V100" not in self.gpu_name.upper())
+                    or "P40" in self.gpu_name.upper()
+                    or "1060" in self.gpu_name
+                    or "1070" in self.gpu_name
+                    or "1080" in self.gpu_name
             ):
                 print("16 series/10 series P40 forced single precision")
                 self.is_half = False
@@ -60,11 +74,13 @@ class Config:
             self.n_cpu = cpu_count()
 
         if self.is_half:
+            # 6G memory config
             x_pad = 3
             x_query = 10
             x_center = 60
             x_max = 65
         else:
+            # 5G memory config
             x_pad = 1
             x_query = 6
             x_center = 38
@@ -78,66 +94,92 @@ class Config:
 
         return x_pad, x_query, x_center, x_max
 
-def crossfade(audio1, audio2, duration):
-    # Simple crossfade for chunk merging
-    duration = min(duration, len(audio1), len(audio2))
-    if duration == 0:
-        return np.concatenate((audio1, audio2))
-    fade_out = np.linspace(1, 0, duration)
-    fade_in = np.linspace(0, 1, duration)
-    if audio1.ndim == 2:
-        fade_out = fade_out[:, np.newaxis]
-        fade_in = fade_in[:, np.newaxis]
-    audio1_fade_out = audio1[-duration:] * fade_out
-    audio1_non_fade = audio1[:-duration]
-    audio2_fade_in = audio2[:duration] * fade_in
-    audio2_non_fade = audio2[duration:]
-    combined_fade = audio1_fade_out + audio2_fade_in
-    return np.concatenate((audio1_non_fade, combined_fade, audio2_non_fade))
+def process_chunk(args):
+    hubert_model, net_g, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, vc = args
+    return vc.pipeline(hubert_model, net_g, 0, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
 
-def infer_chunk(args):
-    # chunk inference with index (for sorting)
-    idx, chunk, model_args = args
-    out_chunk = vc_infer_chunk(chunk, *model_args)
-    return idx, out_chunk
 
-def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method,
-              cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect,
-              crepe_hop_length, vc, hubert_model, rvc_model_input):
-    # Load audio
-    audio = load_audio(input_path, 16000)
-    chunk_length_sec = 15
-    overlap_sec = 1
-    chunk_length = int(chunk_length_sec * 16000)
-    overlap_length = int(overlap_sec * 16000)
-    crossfade_length = int(overlap_sec * tgt_sr)
+def load_hubert(device, is_half, model_path):
+    models, saved_cfg, task = checkpoint_utils.load_model_ensemble_and_task([model_path], suffix='', )
+    hubert = models[0]
+    hubert = hubert.to(device)
 
-    if len(audio) / 16000 > 60:
-        print("Parallel infer...")
-        chunks = []
-        starts = []
-        start = 0
-        while start < len(audio):
-            end = start + chunk_length
-            chunk = audio[start:min(end + overlap_length, len(audio))]
-            chunks.append(chunk)
-            starts.append(start)
-            start += chunk_length
-        model_args = [cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect,
-                      crepe_hop_length, vc, hubert_model, rvc_model_input]
-        tasks = [(idx, chunk, model_args) for idx, chunk in enumerate(chunks)]
-        with mp.Pool(mp.cpu_count()) as pool:
-            results = pool.map(infer_chunk, tasks)
-        results.sort(key=lambda x: x[0])
-        audio_chunks = [r[1] for r in results]
-        out_audio = audio_chunks[0]
-        for i in range(1, len(audio_chunks)):
-            out_audio = crossfade(out_audio, audio_chunks[i], crossfade_length)
-        save_audio(out_audio, output_path, tgt_sr)
+    if is_half:
+        hubert = hubert.half()
     else:
-        print("Serial infer...")
-        out_audio = vc_infer_chunk(audio, cpt, version, net_g, filter_radius, tgt_sr,
-                                  rms_mix_rate, protect, crepe_hop_length, vc,
-                                  hubert_model, rvc_model_input)
-        save_audio(out_audio, output_path, tgt_sr)
-    gc.collect()
+        hubert = hubert.float()
+
+    hubert.eval()
+    return hubert
+
+
+def get_vc(device, is_half, config, model_path):
+    cpt = torch.load(model_path, map_location='cpu')
+    if "config" not in cpt or "weight" not in cpt:
+        raise ValueError(f'Incorrect format for {model_path}. Use a voice model trained using RVC v2 instead.')
+
+    tgt_sr = cpt["config"][-1]
+    cpt["config"][-3] = cpt["weight"]["emb_g.weight"].shape[0]
+    if_f0 = cpt.get("f0", 1)
+    version = cpt.get("version", "v1")
+
+    if version == "v1":
+        if if_f0 == 1:
+            net_g = SynthesizerTrnMs256NSFsid(*cpt["config"], is_half=is_half)
+        else:
+            net_g = SynthesizerTrnMs256NSFsid_nono(*cpt["config"])
+    elif version == "v2":
+        if if_f0 == 1:
+            net_g = SynthesizerTrnMs768NSFsid(*cpt["config"], is_half=is_half)
+        else:
+            net_g = SynthesizerTrnMs768NSFsid_nono(*cpt["config"])
+
+    del net_g.enc_q
+    print(net_g.load_state_dict(cpt["weight"], strict=False))
+    net_g.eval().to(device)
+
+    if is_half:
+        net_g = net_g.half()
+    else:
+        net_g = net_g.float()
+
+    vc = VC(tgt_sr, config)
+    return cpt, version, net_g, tgt_sr, vc
+
+
+def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model):
+    # Restrict f0_method to 'rmvpe' or 'fcpe'
+    if f0_method not in ['rmvpe', 'fcpe']:
+        print(f"Warning: f0_method '{f0_method}' is not supported. Using 'rmvpe' instead.")
+        f0_method = 'rmvpe'
+
+    audio = load_audio(input_path, 16000)
+    times = [0, 0, 0]
+    if_f0 = cpt.get('f0', 1)
+
+    # Check if audio is longer than 1 minute (60 seconds)
+    if len(audio) / 16000 > 60:
+        print("Audio is longer than 1 minute. Splitting and processing in parallel.")
+        # Split audio into chunks based on CPU count
+        num_chunks = cpu_count()
+        chunk_length = len(audio) // num_chunks
+        chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_chunks)]
+        # Add remaining audio to the last chunk
+        if len(audio) % num_chunks != 0:
+            chunks[-1] = torch.cat((chunks[-1], audio[num_chunks * chunk_length:]))
+
+
+        # Prepare arguments for parallel processing
+        args_list = [(hubert_model, net_g, chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, vc) for chunk in chunks]
+
+        # Process chunks in parallel
+        with Pool(cpu_count()) as p:
+            processed_chunks = p.map(process_chunk, args_list)
+
+        # Concatenate processed chunks
+        audio_opt = torch.cat(processed_chunks)
+    else:
+        audio_opt = vc.pipeline(hubert_model, net_g, 0, audio, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
+
+
+    wavfile.write(output_path, tgt_sr, audio_opt)
