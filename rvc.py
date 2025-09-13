@@ -1,9 +1,11 @@
-from multiprocessing import cpu_count, Pool
+from multiprocessing import cpu_count, Pool, current_process
 from pathlib import Path
 
 import torch
 from fairseq import checkpoint_utils
 from scipy.io import wavfile
+import numpy as np
+import os
 
 from infer_pack.models import (
     SynthesizerTrnMs256NSFsid,
@@ -16,6 +18,13 @@ from vc_infer_pipeline import VC
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Global variables for models to be loaded by workers
+hubert_model_global = None
+net_g_global = None
+cpt_global = None
+vc_global = None
+version_global = None
+config_global = None
 
 class Config:
     def __init__(self, device, is_half):
@@ -31,13 +40,13 @@ class Config:
             i_device = int(self.device.split(":")[-1])
             self.gpu_name = torch.cuda.get_device_name(i_device)
             if (
-                    ("16" in self.gpu_name and "V100" not in self.gpu_name.upper())
-                    or "P40" in self.gpu_name.upper()
-                    or "1060" in self.gpu_name
-                    or "1070" in self.gpu_name
-                    or "1080" in self.gpu_name
+                ("16" in self.gpu_name and "V100" not in self.gpu_name.upper())
+                or "P40" in self.gpu_name.upper()
+                or "1060" in self.gpu_name
+                or "1070" in self.gpu_name
+                or "1080" in self.gpu_name
             ):
-                print("16 series/10 series P40 forced single precision")
+                print("16/10 series P40 forced single precision")
                 self.is_half = False
                 for config_file in ["32k.json", "40k.json", "48k.json"]:
                     with open(BASE_DIR / "src" / "configs" / config_file, "r") as f:
@@ -63,10 +72,10 @@ class Config:
                 with open(BASE_DIR / "src" / "trainset_preprocess_pipeline_print.py", "w") as f:
                     f.write(strr)
         elif torch.backends.mps.is_available():
-            print("No supported N-card found, use MPS for inference")
+            print("No N-card, use MPS")
             self.device = "mps"
         else:
-            print("No supported N-card found, use CPU for inference")
+            print("No N-card, use CPU")
             self.device = "cpu"
             self.is_half = True
 
@@ -74,13 +83,11 @@ class Config:
             self.n_cpu = cpu_count()
 
         if self.is_half:
-            # 6G memory config
             x_pad = 3
             x_query = 10
             x_center = 60
             x_max = 65
         else:
-            # 5G memory config
             x_pad = 1
             x_query = 6
             x_center = 38
@@ -94,13 +101,26 @@ class Config:
 
         return x_pad, x_query, x_center, x_max
 
+
 def process_chunk(args):
-    hubert_model, net_g, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, vc = args
-    return vc.pipeline(hubert_model, net_g, 0, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
+    # This function is executed by a worker process
+    audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length = args
+    # Use global models loaded by the initializer
+    return vc_global.pipeline(hubert_model_global, net_g_global, 0, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
+
+def worker_initializer(model_path, hubert_path, device, is_half):
+    # This function is called once for each worker process
+    global hubert_model_global, net_g_global, cpt_global, vc_global, version_global, config_global
+
+    print(f"[{current_process().name}] Loading models...")
+    config_global = Config(device, is_half)
+    hubert_model_global = load_hubert(config_global.device, config_global.is_half, hubert_path)
+    cpt_global, version_global, net_g_global, _, vc_global = get_vc(config_global.device, config_global.is_half, config_global, model_path)
+    print(f"[{current_process().name}] Models loaded.")
 
 
 def load_hubert(device, is_half, model_path):
-    models, saved_cfg, task = checkpoint_utils.load_model_ensemble_and_task([model_path], suffix='', )
+    models, _, task = checkpoint_utils.load_model_ensemble_and_task([model_path], suffix='')
     hubert = models[0]
     hubert = hubert.to(device)
 
@@ -146,40 +166,67 @@ def get_vc(device, is_half, config, model_path):
     vc = VC(tgt_sr, config)
     return cpt, version, net_g, tgt_sr, vc
 
-
 def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model):
-    # Restrict f0_method to 'rmvpe' or 'fcpe'
     if f0_method not in ['rmvpe', 'fcpe']:
-        print(f"Warning: f0_method '{f0_method}' is not supported. Using 'rmvpe' instead.")
+        print("Warning: f0 method is not supported. Using 'rmvpe'.")
         f0_method = 'rmvpe'
 
     audio = load_audio(input_path, 16000)
     times = [0, 0, 0]
     if_f0 = cpt.get('f0', 1)
 
-    # Check if audio is longer than 1 minute (60 seconds)
-    if len(audio) / 16000 > 60:
-        print("Audio is longer than 1 minute. Splitting and processing in parallel.")
-        # Split audio into chunks based on CPU count
-        num_chunks = cpu_count()
-        chunk_length = len(audio) // num_chunks
-        chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_chunks)]
-        # Add remaining audio to the last chunk
-        if len(audio) % num_chunks != 0:
-            chunks[-1] = torch.cat((chunks[-1], audio[num_chunks * chunk_length:]))
+    if len(audio) / 16000 > 60 and torch.cuda.is_available():
+        print("Audio is longer than 1 minute and CUDA is available. Determining optimal worker count...")
+        
+        try:
+            # Check if models are on GPU
+            if hubert_model.parameters():
+                device = next(hubert_model.parameters()).device
+            elif net_g.parameters():
+                device = next(net_g.parameters()).device
+            else:
+                device = torch.device('cuda:0')
+                
+            prop = torch.cuda.get_device_properties(device)
+            total_vram = prop.total_memory / 1024 / 1024 # MB
+            
+            # Estimate VRAM usage of one model instance (Hubert + RVC)
+            model_size_mb = 0
+            for param in hubert_model.parameters():
+                model_size_mb += param.numel() * param.element_size() / 1024 / 1024
+            for param in net_g.parameters():
+                model_size_mb += param.numel() * param.element_size() / 1024 / 1024
+            
+            # Use a safe buffer for VRAM
+            vram_buffer_mb = 512 # 512MB
+            
+            # Calculate max workers
+            num_workers = int((total_vram - vram_buffer_mb) / model_size_mb)
+            num_workers = max(1, num_workers) # At least 1 worker
+            num_workers = min(num_workers, cpu_count()) # Don't exceed CPU cores
+            
+            print(f"Optimal number of workers: {num_workers} (Total VRAM: {total_vram:.2f}MB, Estimated Model size: {model_size_mb:.2f}MB)")
+        except Exception as e:
+            print(f"Could not determine VRAM. Falling back to CPU count. Error: {e}")
+            num_workers = cpu_count()
 
+        chunk_length = len(audio) // num_workers
+        chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_workers)]
+        if len(audio) % num_workers != 0:
+            chunks[-1] = np.concatenate((chunks[-1], audio[num_workers * chunk_length:]))
 
-        # Prepare arguments for parallel processing
-        args_list = [(hubert_model, net_g, chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, vc) for chunk in chunks]
+        args_list = [(chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length) for chunk in chunks]
 
-        # Process chunks in parallel
-        with Pool(cpu_count()) as p:
+        # Use Pool with initializer to handle model loading in each worker
+        # Note: 'cpt' and 'hubert_model' objects are not passed directly to 'initargs'
+        # Only paths and simple variables are passed.
+        with Pool(processes=num_workers, initializer=worker_initializer, initargs=(cpt['model_path'], hubert_model.name, "cuda:0", True)) as p:
             processed_chunks = p.map(process_chunk, args_list)
+        
+        audio_opt = np.concatenate(processed_chunks)
 
-        # Concatenate processed chunks
-        audio_opt = torch.cat(processed_chunks)
     else:
+        print("Audio is short or CUDA is not available. Processing serially.")
         audio_opt = vc.pipeline(hubert_model, net_g, 0, audio, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
-
 
     wavfile.write(output_path, tgt_sr, audio_opt)
