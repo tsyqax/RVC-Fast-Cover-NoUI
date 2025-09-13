@@ -307,7 +307,7 @@ class VC(object):
             ]
 
         if isinstance(f0, torch.Tensor):
-            f0bak = f0.clone().detach()
+            f0bak = f0.clone().detach().cpu().numpy() 
             f0_mel = 1127 * torch.log(1 + f0 / 700)
             
             f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
