@@ -231,7 +231,7 @@ def rvc_infer(
     vc,
     hubert_model,
     rvc_model_path,
-    hubert_model_path=os.path.join(os.getcwd(), 'infers', 'hubert_base.pt') # 파일명 변경
+    hubert_model_path=os.path.join(os.getcwd(), 'infers', 'hubert_base.pt')
 ):
     if f0_method not in ['rmvpe', 'fcpe']:
         print("Warning: f0 method is not supported. Using 'rmvpe'.")
@@ -261,7 +261,7 @@ def rvc_infer(
             for param in hubert_model.parameters():
                 model_size_mb += param.numel() * param.element_size() / 1024 / 1024
             for param in net_g.parameters():
-                model_size_mb += param.numel() * param.element_size() / 1024 / 124
+                model_size_mb += param.numel() * param.element_size() / 1024 / 1024
             
             # Use a safe buffer for VRAM
             vram_buffer_mb = 512 # 512MB
@@ -308,6 +308,29 @@ def rvc_infer(
 
     else:
         print("Audio is short or CUDA is not available. Processing serially.")
-        audio_opt = vc.pipeline(hubert_model, net_g, 0, audio, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length)
-
+        # p_len을 여기서 계산하고 파이프라인에 전달
+        audio_pad = np.pad(audio, (vc.t_pad, vc.t_pad), mode="reflect")
+        p_len = audio_pad.shape[0] // vc.window
+        
+        audio_opt = vc.pipeline(
+            hubert_model,
+            net_g,
+            0,
+            audio,
+            input_path,
+            times,
+            pitch_change,
+            f0_method,
+            index_path,
+            index_rate,
+            if_f0,
+            filter_radius,
+            tgt_sr,
+            0,
+            rms_mix_rate,
+            version,
+            protect,
+            crepe_hop_length,
+            p_len
+        )
     wavfile.write(output_path, tgt_sr, audio_opt)
