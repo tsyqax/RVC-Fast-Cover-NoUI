@@ -22,7 +22,7 @@ from pathlib import Path
 import traceback
 
 BASE_DIR = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-now_dir = BASE_DIR / "src"
+now_dir = BASE_DIR / "DIR"
 sys.path.append(str(now_dir))
 
 bh, ah = signal.butter(N=5, Wn=48, btype="high", fs=16000)
