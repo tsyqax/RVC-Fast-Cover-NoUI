@@ -91,7 +91,7 @@ def pitch_song(pitch_vocal_path, pitch_other_path, pitch_vocal, pitch_other, son
     
     if pitch_vocal != 0:
       pitch_vocal = 2 ** (pitch_vocal / 10)
-      change_pitch(input_file=pitch_vocal_path, output_file='to_rvc/rvc_vocal.mp3', pitch_factor=pitch_vocal)
+      change_pitch(input_file=pitch_vocal_path, output_file=os'to_rvc/rvc_vocal.mp3', pitch_factor=pitch_vocal)
     else:
       subprocess.run(['mv', pitch_vocal_path, 'to_rvc/rvc_vocal.mp3'], check=True)
     if sep_mode is True:
