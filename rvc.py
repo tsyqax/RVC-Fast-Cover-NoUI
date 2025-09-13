@@ -1,12 +1,17 @@
 from multiprocessing import cpu_count, Pool, current_process
 from pathlib import Path
+import traceback
 
 import torch
 from fairseq import checkpoint_utils
 from scipy.io import wavfile
 import numpy as np
 import os
+import sys
 
+# BASE_DIR를 기준으로 상대 경로를 사용
+now_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(now_dir)
 from infer_pack.models import (
     SynthesizerTrnMs256NSFsid,
     SynthesizerTrnMs256NSFsid_nono,
@@ -104,20 +109,62 @@ class Config:
 
 def process_chunk(args):
     # This function is executed by a worker process
-    audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, p_len = args # p_len 인자 추가
-    # Use global models loaded by the initializer
-    return vc_global.pipeline(hubert_model_global, net_g_global, 0, audio_chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length, p_len) # p_len 인자 전달
+    (
+        audio_chunk,
+        input_path,
+        times,
+        pitch_change,
+        f0_method,
+        index_path,
+        index_rate,
+        if_f0,
+        filter_radius,
+        tgt_sr,
+        rms_mix_rate,
+        version,
+        protect,
+        crepe_hop_length,
+    ) = args
+    # p_len is calculated locally for each chunk
+    audio_chunk = np.pad(audio_chunk, (vc_global.t_pad, vc_global.t_pad), mode="reflect")
+    p_len = audio_chunk.shape[0] // vc_global.window
+    
+    return vc_global.pipeline(
+        hubert_model_global,
+        net_g_global,
+        0,
+        audio_chunk,
+        input_path,
+        times,
+        pitch_change,
+        f0_method,
+        index_path,
+        index_rate,
+        if_f0,
+        filter_radius,
+        tgt_sr,
+        0,
+        rms_mix_rate,
+        version,
+        protect,
+        crepe_hop_length,
+        p_len
+    )
 
 def worker_initializer(model_path, hubert_path, device, is_half):
     # This function is called once for each worker process
     global hubert_model_global, net_g_global, cpt_global, vc_global, version_global, config_global
-
     print(f"[{current_process().name}] Loading models...")
-    config_global = Config(device, is_half)
-    hubert_model_global = load_hubert(config_global.device, config_global.is_half, hubert_path)
-    cpt_global, version_global, net_g_global, _, vc_global = get_vc(config_global.device, config_global.is_half, config_global, model_path)
-    print(f"[{current_process().name}] Models loaded.")
-
+    
+    try:
+        config_global = Config(device, is_half)
+        hubert_model_global = load_hubert(config_global.device, config_global.is_half, hubert_path)
+        cpt_global, version_global, net_g_global, _, vc_global = get_vc(config_global.device, config_global.is_half, config_global, model_path)
+        print(f"[{current_process().name}] Models loaded.")
+    except Exception as e:
+        print(f"[{current_process().name}] Error loading models: {e}")
+        traceback.print_exc()
+        raise
 
 def load_hubert(device, is_half, model_path):
     models, _, task = checkpoint_utils.load_model_ensemble_and_task([model_path], suffix='')
@@ -184,7 +231,7 @@ def rvc_infer(
     vc,
     hubert_model,
     rvc_model_path,
-    hubert_model_path=os.path.join(os.getcwd(), 'infers', 'hubert_base.pt')
+    hubert_model_path=os.path.join(os.getcwd(), 'infers', 'hubert_base.pt') # 파일명 변경
 ):
     if f0_method not in ['rmvpe', 'fcpe']:
         print("Warning: f0 method is not supported. Using 'rmvpe'.")
@@ -214,7 +261,7 @@ def rvc_infer(
             for param in hubert_model.parameters():
                 model_size_mb += param.numel() * param.element_size() / 1024 / 1024
             for param in net_g.parameters():
-                model_size_mb += param.numel() * param.element_size() / 1024 / 1024
+                model_size_mb += param.numel() * param.element_size() / 1024 / 124
             
             # Use a safe buffer for VRAM
             vram_buffer_mb = 512 # 512MB
@@ -233,12 +280,27 @@ def rvc_infer(
         chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_workers)]
         if len(audio) % num_workers != 0:
             chunks[-1] = np.concatenate((chunks[-1], audio[num_workers * chunk_length:]))
-        
-        # p_len은 pipeline 함수에 전달되어야 하므로 여기서 계산
-        p_len = len(audio) // vc.window
-        args_list = [(chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, p_len) for chunk in chunks]
 
-        # Use Pool with initializer to handle model loading in each worker
+        args_list = [
+            (
+                chunk,
+                input_path,
+                times,
+                pitch_change,
+                f0_method,
+                index_path,
+                index_rate,
+                if_f0,
+                filter_radius,
+                tgt_sr,
+                rms_mix_rate,
+                version,
+                protect,
+                crepe_hop_length,
+            )
+            for chunk in chunks
+        ]
+
         with Pool(processes=num_workers, initializer=worker_initializer, initargs=(rvc_model_path, hubert_model_path, "cuda:0", True)) as p:
             processed_chunks = p.map(process_chunk, args_list)
         
