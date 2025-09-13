@@ -184,7 +184,7 @@ def rvc_infer(
     vc,
     hubert_model,
     rvc_model_path,
-    hubert_model_path=os.path.join(os.getcwd(), 'infers', 'hubert.pt')
+    hubert_model_path=os.path.join(os.getcwd(), 'infers', 'hubert_base.pt')
 ):
     if f0_method not in ['rmvpe', 'fcpe']:
         print("Warning: f0 method is not supported. Using 'rmvpe'.")
@@ -236,7 +236,7 @@ def rvc_infer(
         
         # p_len은 pipeline 함수에 전달되어야 하므로 여기서 계산
         p_len = len(audio) // vc.window
-        args_list = [(chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, p_len) for chunk in chunks] # p_len 추가
+        args_list = [(chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, p_len) for chunk in chunks]
 
         # Use Pool with initializer to handle model loading in each worker
         with Pool(processes=num_workers, initializer=worker_initializer, initargs=(rvc_model_path, hubert_model_path, "cuda:0", True)) as p:
