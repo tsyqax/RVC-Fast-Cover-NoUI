@@ -1,241 +1,292 @@
 #main.py
+import torch
+import uuid
+import subprocess
 import argparse
-import glob
 import json
+import yt_dlp
+import gc
+import librosa
+import numpy as np
 import os
-import sys
-import shutil
+import math
+
+
 from pydub import AudioSegment
-from scipy.io import wavfile # Import wavfile to read WAV data explicitly
-import numpy as np # Import numpy
 
-# sys.path.append(os.path.dirname(__file__)) # Assuming my_utils and vc_infer_pipeline are in the same directory as this script
-# Adjusting path for Colab environment if necessary, or rely on sys.path additions made earlier
-# from my_utils import load_audio # Already imported in rvc.py and vc_infer_pipeline.py
-# from vc_infer_pipeline import VC # Already imported in rvc.py
+from rvc import Config, load_hubert, get_vc, rvc_infer
 
-# Assuming rvc.py and vc_infer_pipeline.py are in the same directory structure or paths are handled
-from rvc import rvc_infer, Config, load_hubert, get_vc # Import necessary functions from rvc.py
+try:
+    torch.multiprocessing.set_start_method('spawn', force=True)
+    print("spawn")
+except RuntimeError as e:
+    print(f"{e}")
 
+def songload():
+  try:
+    with open('songs.json', 'r') as file:
+      songs_data = json.load(file)
+      if not songs_data or isinstance(songs_data, list):
+        return {}
+      return songs_data
+
+  except FileNotFoundError:
+    with open('songs.json', 'w') as file:
+      initdata = {}
+      json.dump(initdata, file, indent=2)
+      return {}
+
+def songsave(data_to_update):
+  try:
+    with open('songs.json', 'w') as file:
+      json.dump(data_to_update, file, indent=2)
+  except Exception as e:
+     print(f"ERROR: {e}")
+
+songs = songload()
+
+# input / songname.mp3
+
+# input -> seperate -> pitch -> rvc(vocal_only) -> merge -> output
+# keep: seperate only (many time)
+
+# pitch / pitch_inst.mp3
+# pitch / pitch_vocal.mp3
+
+# output format = output/ song_id / song_name (rvc model).mp3
+
+def sep_song(song_path, song_filename, song_id):
+  demucs_command = ["demucs","-d", "cuda", "-n", "mdx", "--mp3", "--two-stems=vocals", "--segment", "16", song_path]
+  subprocess.run(demucs_command, check=True)
+  sep_path = os.path.join(os.getcwd(), 'separated', 'mdx', song_filename)
+  os.makedirs(sep_path, exist_ok=True)
+  if os.listdir(sep_path):
+    instis = os.path.join(sep_path, 'no_vocals.mp3') # accompaniment
+    vocalis = os.path.join(sep_path, 'vocals.mp3')
+    pitch_dir = os.path.join(os.getcwd(), 'pitch')
+    os.makedirs(pitch_dir, exist_ok=True)
+    keep_dir = os.path.join(os.getcwd(), 'keep', song_id)
+    os.makedirs(keep_dir, exist_ok=True)
+    subprocess.run(['cp', vocalis, os.path.join(keep_dir, 'sep_vocal.mp3')], check=True)
+    subprocess.run(['cp', instis,  os.path.join(keep_dir, 'sep_inst.mp3')], check=True)
+    subprocess.run(['mv', vocalis, os.path.join(pitch_dir, 'pitch_vocal.mp3')], check=True)
+    subprocess.run(['mv', instis,  os.path.join(pitch_dir, 'pitch_inst.mp3')], check=True)
+    #songs = songload()
+    songs[song_name] = song_id
+    songsave(songs)
+    return 1
+  else:
+    return 0
+
+def pitch_song(pitch_vocal_path, pitch_other_path, pitch_vocal, pitch_other, song_id, song_name, sep_mode):
+  try:
+    # 삼겹살 = 반키 * 1.2 # (samgyeopsal = semiton * 1.2)
+    # 10 삼겹살 = 1 옥타브 # (10 samgyeopsal = 1 octarve)
+
+    def change_pitch(input_file, output_file, pitch_factor):
+      filter_string = f"asetrate=44100*{pitch_factor},atempo=1/{pitch_factor}"
+      pitch_command = ["ffmpeg", "-i", input_file, "-filter:a", filter_string, "-y", output_file]
+      subprocess.run(pitch_command, check=True)
+      os.remove(input_file)
+    
+    if pitch_vocal != 0:
+      pitch_vocal = 2 ** (pitch_vocal / 10)
+      change_pitch(input_file=pitch_vocal_path, output_file=os.path.join(os.getcwd(), 'to_rvc', 'rvc_vocal.mp3'), pitch_factor=pitch_vocal)
+    else:
+      subprocess.run(['mv', pitch_vocal_path, 'to_rvc/rvc_vocal.mp3'], check=True)
+    if sep_mode is True:
+    
+      pitout = os.path.join(os.getcwd(), 'output', song_id)
+      os.makedirs(pitout, exist_ok=True)
+      if pitch_other != 0:
+        pitch_other = 2 ** (pitch_other / 10)
+        change_pitch(input_file=pitch_other_path, output_file=os.path.join(os.getcwd(), 'to_merge', 'mer_inst.mp3'), pitch_factor=pitch_other)
+        subprocess.run(['cp', 'to_merge/mer_inst.mp3', f'output/{song_id}/{song_name}_inst.mp3'], check=True)
+      else:
+        subprocess.run(['cp', pitch_other_path, f'output/{song_id}/{song_name}_inst.mp3'], check=True)
+        subprocess.run(['mv', pitch_other_path, 'to_merge/mer_inst.mp3'], check=True)
+    print("PITCH..!")
+
+  except Exception as e:
+    print(f"PITCH_ERROR: {e}")
 
 def rvc_song(rvc_index_path, rvc_model_path, index_rate, input_path, output_path, pitch_change, f0_method, filter_radius, rms_mix_rate, protect, crepe_hop_length):
-    print(f"Starting RVC inference for {input_path}")
+  device = 'cuda:0'
+  config = Config(device, True)
+  hubert_model = load_hubert(device, config.is_half, os.path.join(os.getcwd(), 'infers', 'hubert_base.pt'))
+  cpt, version, net_g, tgt_sr, vc = get_vc(device, config.is_half, config, rvc_model_path)
 
-    # Load models and config in the main process
-    # This will be used for sequential processing (<60s) or passed to the initializer/task for parallel
-    config = Config(torch.device("cuda:0" if torch.cuda.is_available() else "cpu"), torch.cuda.is_available()) # Assume CUDA if available
-    cpt, version, net_g, tgt_sr, vc = get_vc(config.device, config.is_half, config, rvc_model_path)
-    hubert_model = load_hubert(config.device, config.is_half, os.path.join(BASE_DIR, 'DIR', 'infers', 'hubert_base.pt'))
-
-
-    # rvc_infer function now handles both sequential and parallel logic internally
-    rvc_infer(rvc_index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_path)
-
-    print(f"RVC inference finished. Output saved to {output_path}")
+  # convert main vocals
+  rvc_infer(rvc_index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_path)
+  del hubert_model, cpt
+  gc.collect()
 
 
-def split_song(audio_path, output_dir, vocal_split_model='htdemucs', segment_duration=10):
-    print(f"Splitting song: {audio_path} using {vocal_split_model}")
-    # This function remains largely the same, using the installed splitter (e.g., Demucs)
-    # Ensure Demucs or other splitter is installed and configured to output to output_dir
-    # Placeholder for actual splitting command
-    # Example: !demucs --split-vocals --two-stems=vocals "{audio_path}" -o "{output_dir}"
 
-    # Create dummy files for demonstration if actual splitting is not set up
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    dummy_vocal_path = os.path.join(output_dir, f"{os.path.splitext(os.path.basename(audio_path))[0]}_vocals.wav")
-    dummy_other_path = os.path.join(output_dir, f"{os.path.splitext(os.path.basename(audio_path))[0]}_other.wav")
+def merge_song(song_name, song_id, rvc_name, vocal_vol, inst_vol, sep_mode):
+    vocal_path = os.path.join(os.getcwd(), 'to_merge', 'mer_vocal.mp3')
+    inst_path = os.path.join(os.getcwd(), 'to_merge', 'mer_inst.mp3')
 
-    if not os.path.exists(dummy_vocal_path):
-        # Create dummy vocal and other files (silent or simple tone)
+    mixed_audio = None
+    if vocal_vol > 0:
         try:
-            original_audio = AudioSegment.from_file(audio_path)
-            original_audio.export(dummy_vocal_path, format="wav") # Create a copy as dummy vocal
-            AudioSegment.silent(duration=len(original_audio)).export(dummy_other_path, format="wav") # Create dummy silent other
-            print("Created dummy vocal and other files.")
-        except Exception as e:
-             print(f"Could not create dummy audio files: {e}. Ensure pydub dependencies are met.")
-             # Create empty files if audio processing fails
-             if not os.path.exists(dummy_vocal_path): open(dummy_vocal_path, 'a').close()
-             if not os.path.exists(dummy_other_path): open(dummy_other_path, 'a').close()
+            vocal = AudioSegment.from_file(vocal_path)
+            vocal = vocal.set_sample_width(2)
+            db_gain = 20 * math.log10(vocal_vol / 100)
+            vocal = vocal.apply_gain(db_gain)
+            mixed_audio = vocal
+        except FileNotFoundError:
+            pass
 
+    if inst_vol > 0 and sep_mode is True:
+        try:
+            inst = AudioSegment.from_file(inst_path)
+            vocal = vocal.set_sample_width(2)
+            db_gain = 20 * math.log10(inst_vol / 100)
+            inst = inst.apply_gain(db_gain)
+            
+            if mixed_audio:
+                mixed_audio = mixed_audio.overlay(inst)
+            else:
+                mixed_audio = inst
+        except FileNotFoundError:
+            pass
 
-    return dummy_vocal_path, dummy_other_path
+    if not mixed_audio:
+        return
 
+    outoutput = os.path.join(os.getcwd(), 'output', song_id)
+    os.makedirs(outoutput, exist_ok=True)
+    
+    output_filename = f"{song_name} ({rvc_name}).mp3"
+    output_path = os.path.join(os.getcwd(), 'output', song_id, output_filename)
 
-def merge_song(song_name, song_id, rvc_name, vocal_sound_path, other_sound_path, sep_mode):
-    print(f"Merging song: {song_name} (ID: {song_id})")
+    mixed_audio.export(output_path, format="mp3")
 
-    output_dir = f"./output/{song_name}"
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-
-    output_path = os.path.join(output_dir, f"{song_name}_merged_{rvc_name}.wav")
-
-    try:
-        # Read vocal and other tracks using wavfile.read for better control over format
-        # This assumes the WAV files are standard PCM formats
-        rate_vocal, vocal_data = wavfile.read(vocal_sound_path)
-        rate_other, other_data = wavfile.read(other_sound_path)
-
-        # Convert numpy arrays to pydub AudioSegment
-        # Need to specify sample_width and frame_rate explicitly
-        # wavfile.read typically returns int16 for 16-bit WAVs, so sample_width is 2
-        # Adjust sample_width if your audio is 24-bit (3) or 32-bit float (4) etc.
-        sample_width_vocal = vocal_data.dtype.itemsize
-        sample_width_other = other_data.dtype.itemsize
-
-        if vocal_data.ndim > 1: # Handle stereo if necessary
-            vocal_data = vocal_data.T.flatten() # Flatten stereo to mono or handle channels appropriately for pydub
-        if other_data.ndim > 1:
-             other_data = other_data.T.flatten() # Flatten stereo to mono
-
-
-        # Create AudioSegment objects
-        vocal_audio = AudioSegment(
-            vocal_data.tobytes(),
-            frame_rate=rate_vocal,
-            sample_width=sample_width_vocal,
-            channels=1 # Assuming mono after potential flattening
-        )
-        other_audio = AudioSegment(
-            other_data.tobytes(),
-            frame_rate=rate_other,
-            sample_width=sample_width_other,
-            channels=1 # Assuming mono
-        )
-
-
-        # Ensure both audio segments have the same frame rate before merging
-        if vocal_audio.frame_rate != other_audio.frame_rate:
-             print(f"Warning: Vocal ({vocal_audio.frame_rate} Hz) and other ({other_audio.frame_rate} Hz) sample rates mismatch. Resampling vocal.")
-             # Resample vocal to match other, or vice versa. Resampling vocal to target SR is common.
-             # Assuming target SR is vocal_audio.frame_rate for merging with other_audio
-             other_audio = other_audio.set_frame_rate(vocal_audio.frame_rate)
-             # Or resample both to a common rate like 44100 or tgt_sr if known
-
-
-        # Ensure both segments have the same length before mixing
-        min_len = min(len(vocal_audio), len(other_audio))
-        vocal_audio = vocal_audio[:min_len]
-        other_audio = other_audio[:min_len]
-
-
-        # Apply gain - this is where the audioop.error likely occurred before
-        # The sample_width should now be correctly inferred or set in AudioSegment creation
-        db_gain = 0 # Define db_gain or get from config/args if needed
-        vocal_audio = vocal_audio.apply_gain(db_gain)
-
-
-        # Mix the tracks (simple addition, pydub handles normalization)
-        # You might need to adjust levels here
-        merged_audio = vocal_audio.overlay(other_audio)
-
-
-        # Export the merged audio
-        merged_audio.export(output_path, format="wav")
-
-        print(f"Song merged successfully to {output_path}")
-
-    except Exception as e:
-        print(f"Error during song merging: {e}")
-        traceback.print_exc() # Print traceback for merging errors
-
-
-# Placeholder for main execution flow
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="RVC Cover Maker")
-    parser.add_argument("--song_id", type=str, required=True, help="Song ID from songs.json")
-    parser.add_argument("--rvc_name", type=str, required=True, help="RVC model name")
-    parser.add_argument("--index_rate", type=float, default=0.5, help="Index rate")
-    parser.add_argument("--rvc_method", type=str, default="rmvpe", help="RVC f0 method (rmvpe, fcpe)")
-    parser.add_argument("--rms_rate", type=float, default=0.4, help="RMS mix rate")
-    parser.add_argument("--protect", type=float, default=0.4, help="Protect value") # Assuming protect is a float
-    parser.add_argument("--crepe_hop_length", type=int, default=128, help="Crepe hop length") # Assuming crepe_hop_length is int
-    # Add other arguments as needed
-
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='AI RVC COVER', add_help=True)
+    parser.add_argument('-in', '--input', type=str, required=True, help='SONG (URL OR DIRECTORY)')
+    parser.add_argument('-rvc', '--rvc-name', type=str, required=True, help='RVC MODEL NAME')
+    parser.add_argument('-p1', '--pitch-vocal', type=float, default=0, help='VOCAl PITCH CHANGE')
+    parser.add_argument('-p2', '--pitch-other', type=float, default=0, help='OTHER PITCH CHANGE')
+    parser.add_argument('-sep', '--sep-mode', type=bool, default=True, help='SEPEPERATE ON OFF')
+    parser.add_argument('-irate', '--index-rate', type=float, default=0.75, help='INDEX RATE')
+    parser.add_argument('-rms', '--rms-rate', type=float, default=0.8, help='RMS RATE')
+    parser.add_argument('-algo', '--rvc-method', type=str, default='rmvpe', help='RVC METHOD')
+    parser.add_argument('-s1', '--vocal-sound', type=int, default=100, help='VOCAL SOUND')
+    parser.add_argument('-s2', '--other-sound', type=int, default=80, help='OTHER SOUND')
+    # BooleanOptionalAction
     args = parser.parse_args()
 
-    # Load song data from songs.json
-    songs_data = {}
+    global sep_mode, exist_check
+    sep_mode = args.sep_mode
+    exist_check = False
+    yt_mode = False
+
+    song_name = '000'
+    song_id = '0002'
+
+    pitch_vocal = args.pitch_vocal
+    pitch_other = args.pitch_other
+    vocal_sound = args.vocal_sound
+    other_sound = args.other_sound
+
+    # for keep
+    keep_path = os.path.join(os.getcwd(), 'keep')
+    os.makedirs(keep_path, exist_ok=True)
+
+    input_dirdir = os.path.join(os.getcwd(), 'input')
+    os.makedirs(input_dirdir, exist_ok=True)
+
+
+    # input (copy)
+    if 'https://' in args.input or 'http://' in args.input: # yt
+      ydl_opts = {
+          'format': 'bestaudio/best',
+          'postprocessors': [{
+              'key': 'FFmpegExtractAudio',
+              'preferredcodec': 'mp3',
+              'preferredquality': '128',
+          }],
+          'ffmpeg_location': 'ffmpeg',
+          'outtmpl': '0000.%(ext)s',
+      }
+      with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info_dict = ydl.extract_info(args.input, download=True)
+        song_name = info_dict.get('id', 'default000')
+      subprocess.run(['mv', '0000.mp3', f'input/{song_name}.mp3'], check=True)
+      yt_mode = True
+
+    else: # drive
+      song_file = os.path.basename(args.input)
+      try:
+        song_name = os.path.basename(args.input).split('.')[0]
+      except:
+        song_name = song_file
+      song_ext = os.path.basename(args.input).split('.')[-1]
+      subprocess.run(['cp', args.input, f'input/{song_file}'], check=True)
+      if song_ext != 'mp3':
+        audio = AudioSegment.from_file(f'input/{song_file}')
+        audio.export(f"input/{song_name}.mp3", format="mp3", bitrate="128k")
+    song_filename = os.path.basename(args.input).split('.')[0]
     try:
-        with open('songs.json', 'r', encoding='utf-8') as f:
-            songs_data = json.load(f)
-    except FileNotFoundError:
-        print("Error: songs.json not found.")
-        sys.exit(1)
-    except json.JSONDecodeError:
-        print("Error: Could not decode songs.json. Check file format.")
-        sys.exit(1)
+      song_id = songs[str(song_name)]
+      exist_check = True
+    except Exception as e:
+      song_id = str(uuid.uuid4()).split('-')[0]
+      print('NO ID... or ERR: {e}')
+
+    input_path0 = os.path.join(os.getcwd(), 'input')
+    os.makedirs(input_path0, exist_ok=True)
+    input_path = os.path.join(input_path0, f'{song_name}.mp3')
 
 
-    song_info = songs_data.get(args.song_id)
-    if not song_info:
-        print(f"Error: Song ID '{args.song_id}' not found in songs.json")
-        sys.exit(1)
-
-    song_name = song_info.get("name", f"song_{args.song_id}")
-    input_path = song_info.get("path")
-    sep_mode = song_info.get("sep_mode", "htdemucs") # Default separation mode
-
-    if not input_path or not os.path.exists(input_path):
-        print(f"Error: Input song file not found at '{input_path}' for song ID '{args.song_id}'")
-        sys.exit(1)
-
-    # Paths for RVC model and index
-    # Adjust these paths based on your directory structure
-    rvc_model_path = os.path.join(BASE_DIR, 'DIR', 'weights', f"{args.rvc_name}.pth")
-    rvc_index_path = os.path.join(BASE_DIR, 'DIR', 'added_ivf_lib', f"{args.rvc_name}.index")
-
-    if not os.path.exists(rvc_model_path):
-        print(f"Error: RVC model not found at '{rvc_model_path}'")
-        sys.exit(1)
-
-    # Directory for split audio files
-    split_output_dir = f"./split/{args.song_id}"
-    vocal_path_split = os.path.join(split_output_dir, f"{os.path.splitext(os.path.basename(input_path))[0]}_vocals.wav")
-    other_path_split = os.path.join(split_output_dir, f"{os.path.splitext(os.path.basename(input_path))[0]}_other.wav")
-
-
-    # Step 1: Split song
-    # Assuming split_song handles the actual splitting and saves vocal/other to split_output_dir
-    # If splitting is done externally, ensure vocal_path_split and other_path_split exist
-    if not os.path.exists(vocal_path_split) or not os.path.exists(other_path_split):
-         print("Split audio not found, attempting to split...")
-         # Call split_song (or external splitter command)
-         split_vocal_path, split_other_path = split_song(input_path, split_output_dir, sep_mode)
-         vocal_path_split = split_vocal_path
-         other_path_split = split_other_path
+    if sep_mode is True and exist_check is True:
+      print('NO SEPERATE..')
+    elif sep_mode is True and exist_check is False:
+      sep_song(input_path, song_filename, song_id)
     else:
-         print("Split audio found, skipping splitting.")
+      print('NO SEPERATE..')
 
+    if pitch_vocal != 0 or pitch_other != 0:
+      pitch_path0 = os.path.join(os.getcwd(), 'pitch')
+      if exist_check is True: # to pitch move
+        os.makedirs(pitch_path0, exist_ok=True)
+        subprocess.run(['cp', f'keep/{song_id}/sep_vocal.mp3', 'pitch/pitch_vocal.mp3'], check=True)
+        subprocess.run(['cp', f'keep/{song_id}/sep_inst.mp3', 'pitch/pitch_inst.mp3'], check=True)
 
-    # Step 2: RVC inference on vocal track
-    rvc_output_dir = f"./rvc_output/{args.song_id}"
-    if not os.path.exists(rvc_output_dir):
-        os.makedirs(rvc_output_dir)
-    rvc_output_path = os.path.join(rvc_output_dir, f"{os.path.splitext(os.path.basename(vocal_path_split))[0]}_rvc_{args.rvc_name}.wav")
+      pitch_path1 = os.path.join(pitch_path0, f'pitch_vocal.mp3') # vocal
+      if sep_mode is False:
+        pitch_path2 = pitch_path1
+      else:
+        pitch_path2 = os.path.join(pitch_path0, f'pitch_inst.mp3') # inst
+      pitch_song(pitch_path1, pitch_path2, pitch_vocal, pitch_other, song_id, song_name, sep_mode)
 
+    rvc_index_path = ''
+    rvc_vocal_path = ''
+    rvc_models_dir0 = os.path.join(os.getcwd(), 'models')
+    rvc_models_dir = os.path.join(rvc_models_dir0, args.rvc_name)
+    for filename in os.listdir(rvc_models_dir):
+      if filename.endswith(".index"):
+        rvc_index_path = os.path.join(rvc_models_dir, filename)
+        break
 
-    # Call RVC inference (rvc_infer function in rvc.py)
-    # The rvc_infer function now handles loading models and config internally
-    # So we don't need to pass cpt, version, net_g, etc directly from here
-    # We need to instantiate Config, load models in main process
-    # ... (models loaded at the start of rvc_song function, moved there)
+    for filename in os.listdir(rvc_models_dir):
+      if filename.endswith(".pth"):
+        rvc_model_path = os.path.join(rvc_models_dir, filename)
+        break
 
-    # Call rvc_infer, passing the loaded models and other parameters
-    rvc_song(rvc_index_path, rvc_model_path, args.index_rate, vocal_path_split, rvc_output_path, 0, args.rvc_method, 3, args.rms_rate, args.protect, args.crepe_hop_length)
+    rvc_output_path0 = os.path.join(os.getcwd(), 'to_merge')
+    os.makedirs(rvc_output_path0, exist_ok=True)
+    rvc_output_path = os.path.join(rvc_output_path0, 'mer_vocal.mp3')
 
+    rvc_input_path0 = os.path.join(os.getcwd(), 'to_rvc')
+    os.makedirs(rvc_input_path0, exist_ok=True)
+    rvc_input_path = os.path.join(rvc_input_path0, 'rvc_vocal.mp3')
 
-    # Step 3: Merge RVC vocal with other tracks
-    # Use the RVC processed vocal track (rvc_output_path) and the original other track (other_path_split)
-    # Need to ensure sample rates and lengths match or are handled in merge_song
-    # Passing original song_name, song_id, rvc_name for naming output file
-    merge_song(song_name, args.song_id, args.rvc_name, rvc_output_path, other_path_split, sep_mode)
-
-
-    print("Process completed.")
-
-    # Example of how to call from command line:
-    # python main.py --song_id <your_song_id> --rvc_name <your_rvc_model_name> --index_rate 0.5 --rvc_method rmvpe --rms_rate 0.4 --protect 0.4 --crepe_hop_length 128
+    rvc_song(rvc_index_path, rvc_model_path, args.index_rate, rvc_input_path, rvc_output_path, 0, args.rvc_method, 3, args.rms_rate, 0.4, 128)
+    
+    merge_song(song_name, song_id, args.rvc_name, vocal_sound, other_sound, sep_mode)
+    songs[song_name] = song_id
+    songsave(songs)
+    print('DONE!!')
