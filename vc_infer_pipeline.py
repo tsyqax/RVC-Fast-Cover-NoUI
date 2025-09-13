@@ -309,27 +309,27 @@ class VC(object):
             ]
 
         if isinstance(f0, torch.Tensor):
-            f0bak = f0.clone().detach().cpu().numpy() 
-            f0_mel = 1127 * torch.log(1 + f0 / 700)
-            
-            f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
-                f0_mel_max - f0_mel_min
-            ) + 1
-            f0_mel[f0_mel <= 1] = 1
-            f0_mel[f0_mel > 255] = 255
-            
-            f0_coarse = torch.round(f0_mel).int().cpu().numpy()
-        else:
-            f0bak = f0.copy()
-            f0_mel = 1127 * np.log(1 + f0 / 700)
-            
-            f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
-                f0_mel_max - f0_mel_min
-            ) + 1
-            f0_mel[f0_mel <= 1] = 1
-            f0_mel[f0_mel > 255] = 255
-            
-            f0_coarse = np.rint(f0_mel).astype(np.int)
+            f0bak = f0.clone().detach().cpu().numpy() 
+            f0_mel = 1127 * torch.log(1 + f0 / 700)
+            
+            f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
+                f0_mel_max - f0_mel_min
+            ) + 1
+            f0_mel[f0_mel <= 1] = 1
+            f0_mel[f0_mel > 255] = 255
+            
+            f0_coarse = torch.round(f0_mel).int().cpu().numpy()
+        else:
+            f0bak = f0.copy()
+            f0_mel = 1127 * np.log(1 + f0 / 700)
+            
+            f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
+                f0_mel_max - f0_mel_min
+            ) + 1
+            f0_mel[f0_mel <= 1] = 1
+            f0_mel[f0_mel > 255] = 255
+            
+            f0_coarse = np.rint(f0_mel).astype(np.int)
 
 
         return f0_coarse, f0bak
@@ -444,7 +444,7 @@ class VC(object):
         version,
         protect,
         crepe_hop_length,
-        p_len, # 이 줄은 이미 추가되어 있습니다.
+        p_len,
         f0_file=None,
     ):
         if (
@@ -462,31 +462,20 @@ class VC(object):
             index = big_npy = None
         audio = signal.filtfilt(bh, ah, audio)
         audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
-        opt_ts = []
-        if audio_pad.shape[0] > self.t_max:
-            # 기존의 오류가 있는 루프를 효율적인 np.convolve로 대체
-            audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
-            # t 값을 오디오 길이에 맞춰 조정하고 슬라이딩 윈도우 합 배열의 길이를 고려
-            # t는 원래 audio 배열의 인덱스를 나타냅니다.
-            for t in range(self.t_center, audio.shape[0], self.t_center):
-                # audio_sum의 인덱스를 원래 audio 배열의 인덱스로부터 계산합니다.
-                audio_sum_idx = max(0, t - self.window // 2)
-                
-                # t_query 범위 내의 가장 조용한 지점을 찾습니다.
-                local_sum = audio_sum[audio_sum_idx - self.t_query // 2 : audio_sum_idx + self.t_query // 2]
-                if local_sum.size == 0:
-                    continue
-                
-                min_index_local = np.argmin(local_sum)
-                
-                # audio 배열에 대한 실제 분할 지점 인덱스를 계산합니다.
-                split_point = (audio_sum_idx - self.t_query // 2) + min_index_local
-                
-                opt_ts.append(split_point)
+        
+        # 오디오 순서 문제 해결을 위한 분할 로직 수정
+        splits = np.arange(self.t_center, audio.shape[0], self.t_center)
+        if len(splits) == 0:
+            splits = [audio.shape[0]]
 
-        s = 0
-        audio_opt = []
-        t = None
+        audio_splits = []
+        start = 0
+        for end in splits:
+            audio_splits.append(audio_pad[start : end + self.t_pad2 + self.window])
+            start = end
+        audio_splits.append(audio_pad[start:])
+
+        # F0 계산을 한 번에 처리
         t1 = ttime()
         inp_f0 = None
         if hasattr(f0_file, "name") == True:
@@ -520,70 +509,33 @@ class VC(object):
             pitchf = torch.tensor(pitchf, device=self.device).unsqueeze(0).float()
         t2 = ttime()
         times[1] += t2 - t1
-        for t in opt_ts:
-            t = t // self.window * self.window
+
+        audio_opt = []
+        s_frame = 0
+        for i, audio_segment in enumerate(audio_splits):
+            seg_len_frame = (len(audio_segment) - self.t_pad2 - self.window) // self.window
             if if_f0 == 1:
-                audio_opt.append(
-                    self.vc(
-                        model,
-                        net_g,
-                        sid,
-                        audio_pad[s : t + self.t_pad2 + self.window],
-                        pitch[:, s // self.window : (t + self.t_pad2) // self.window],
-                        pitchf[:, s // self.window : (t + self.t_pad2) // self.window],
-                        times,
-                        index,
-                        big_npy,
-                        index_rate,
-                        version,
-                        protect,
-                        (t + self.t_pad2) // self.window - s // self.window
-                    )[self.t_pad_tgt : -self.t_pad_tgt]
-                )
+                audio_output = self.vc(
+                    model,
+                    net_g,
+                    sid,
+                    audio_segment,
+                    pitch[:, s_frame : s_frame + seg_len_frame],
+                    pitchf[:, s_frame : s_frame + seg_len_frame],
+                    times,
+                    index,
+                    big_npy,
+                    index_rate,
+                    version,
+                    protect,
+                    seg_len_frame
+                )[self.t_pad_tgt : -self.t_pad_tgt]
             else:
-                audio_opt.append(
-                    self.vc(
-                        model,
-                        net_g,
-                        sid,
-                        audio_pad[s : t + self.t_pad2 + self.window],
-                        None,
-                        None,
-                        times,
-                        index,
-                        big_npy,
-                        index_rate,
-                        version,
-                        protect,
-                        (t + self.t_pad2) // self.window - s // self.window
-                    )[self.t_pad_tgt : -self.t_pad_tgt]
-                )
-            s = t
-        if if_f0 == 1:
-            audio_opt.append(
-                self.vc(
+                audio_output = self.vc(
                     model,
                     net_g,
                     sid,
-                    audio_pad[t:],
-                    pitch[:, t // self.window :] if t is not None else pitch,
-                    pitchf[:, t // self.window :] if t is not None else pitchf,
-                    times,
-                    index,
-                    big_npy,
-                    index_rate,
-                    version,
-                    protect,
-                    p_len - t // self.window if t is not None else p_len
-                )[self.t_pad_tgt : -self.t_pad_tgt]
-            )
-        else:
-            audio_opt.append(
-                self.vc(
-                    model,
-                    net_g,
-                    sid,
-                    audio_pad[t:],
+                    audio_segment,
                     None,
                     None,
                     times,
@@ -592,10 +544,14 @@ class VC(object):
                     index_rate,
                     version,
                     protect,
-                    p_len - t // self.window if t is not None else p_len
+                    seg_len_frame
                 )[self.t_pad_tgt : -self.t_pad_tgt]
-            )
+            
+            audio_opt.append(audio_output)
+            s_frame += seg_len_frame
+            
         audio_opt = np.concatenate(audio_opt)
+        
         if rms_mix_rate != 1:
             audio_opt = change_rms(audio, 16000, audio_opt, tgt_sr, rms_mix_rate)
         if resample_sr >= 16000 and tgt_sr != resample_sr:
