@@ -166,7 +166,7 @@ def get_vc(device, is_half, config, model_path):
     vc = VC(tgt_sr, config)
     return cpt, version, net_g, tgt_sr, vc
 
-def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_path):
+def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_path, hubert_model_path=os.path.join(os.getcwd(), 'infers', 'hubert.pt')):
     if f0_method not in ['rmvpe', 'fcpe']:
         print("Warning: f0 method is not supported. Using 'rmvpe'.")
         f0_method = 'rmvpe'
@@ -190,7 +190,7 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
             prop = torch.cuda.get_device_properties(device)
             total_vram = prop.total_memory / 1024 / 1024 # MB
             
-            # Estimate VRAM usage of one model instance (Hubert + RVC)
+            # Estimate VRAM usage of one model instance (HuBERT + RVC)
             model_size_mb = 0
             for param in hubert_model.parameters():
                 model_size_mb += param.numel() * param.element_size() / 1024 / 1024
@@ -218,9 +218,7 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
         args_list = [(chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length) for chunk in chunks]
 
         # Use Pool with initializer to handle model loading in each worker
-        # Note: 'cpt' and 'hubert_model' objects are not passed directly to 'initargs'
-        # Pass the model path directly instead of trying to find it in the cpt dictionary
-        with Pool(processes=num_workers, initializer=worker_initializer, initargs=(rvc_model_path, hubert_model.name, "cuda:0", True)) as p:
+        with Pool(processes=num_workers, initializer=worker_initializer, initargs=(rvc_model_path, hubert_model_path, "cuda:0", True)) as p:
             processed_chunks = p.map(process_chunk, args_list)
         
         audio_opt = np.concatenate(processed_chunks)
