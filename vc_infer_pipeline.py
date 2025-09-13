@@ -277,7 +277,7 @@ class VC(object):
                 from rmvpe import RMVPE
 
                 self.model_rmvpe = RMVPE(
-                    os.path.join(BASE_DIR, 'DIR', 'infers', 'rmvpe.pt'), is_half=self.is_half, device=self.device
+                    os.path.join(BASE_DIR, 'rvc_models', 'rmvpe.pt'), is_half=self.is_half, device=self.device
                 )
             f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
         elif f0_method == "fcpe":
@@ -285,7 +285,7 @@ class VC(object):
                  from fcpe import FCPE
 
                  self.model_fcpe = FCPE(
-                     os.path.join(BASE_DIR, 'DIR', 'infers', 'fcpe.pt'), is_half=self.is_half, device=self.device
+                     os.path.join(BASE_DIR, 'rvc_models', 'fcpe.pt'), is_half=self.is_half, device=self.device
                  )
              f0 = self.model_fcpe.infer_from_audio(x, thred=0.006)
 
@@ -329,6 +329,7 @@ class VC(object):
         index_rate,
         version,
         protect,
+        p_len # 이 줄을 추가했습니다.
     ):
         feats = torch.from_numpy(audio0)
         if self.is_half:
@@ -394,7 +395,7 @@ class VC(object):
                 audio1 = (
                     (net_g.infer(feats, p_len, sid)[0][0, 0]).data.cpu().float().numpy()
                 )
-        del feats, p_len, padding_mask
+        del feats, padding_mask
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         t2 = ttime()
@@ -508,6 +509,7 @@ class VC(object):
                         index_rate,
                         version,
                         protect,
+                        (t + self.t_pad2) // self.window - s // self.window # 이 줄을 추가했습니다.
                     )[self.t_pad_tgt : -self.t_pad_tgt]
                 )
             else:
@@ -525,6 +527,7 @@ class VC(object):
                         index_rate,
                         version,
                         protect,
+                        (t + self.t_pad2) // self.window - s // self.window # 이 줄을 추가했습니다.
                     )[self.t_pad_tgt : -self.t_pad_tgt]
                 )
             s = t
@@ -543,6 +546,7 @@ class VC(object):
                     index_rate,
                     version,
                     protect,
+                    p_len - t // self.window if t is not None else p_len # 이 줄을 추가했습니다.
                 )[self.t_pad_tgt : -self.t_pad_tgt]
             )
         else:
@@ -560,6 +564,7 @@ class VC(object):
                     index_rate,
                     version,
                     protect,
+                    p_len - t // self.window if t is not None else p_len # 이 줄을 추가했습니다.
                 )[self.t_pad_tgt : -self.t_pad_tgt]
             )
         audio_opt = np.concatenate(audio_opt)
