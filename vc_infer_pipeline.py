@@ -444,11 +444,14 @@ class VC(object):
         version,
         protect,
         crepe_hop_length,
-        p_len,
+        p_len, # 이 줄은 이미 추가되어 있습니다.
         f0_file=None,
     ):
-        # 파일 인덱스 로드 로직은 그대로 유지
-        if file_index != "" and os.path.exists(file_index) and index_rate != 0:
+        if (
+            file_index != ""
+            and os.path.exists(file_index) == True
+            and index_rate != 0
+        ):
             try:
                 index = faiss.read_index(file_index)
                 big_npy = index.reconstruct_n(0, index.ntotal)
@@ -457,22 +460,46 @@ class VC(object):
                 index = big_npy = None
         else:
             index = big_npy = None
-    
         audio = signal.filtfilt(bh, ah, audio)
         audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
-    
-        # inp_f0를 함수 초반부에 정의하여 UnboundLocalError 방지
+        opt_ts = []
+        if audio_pad.shape[0] > self.t_max:
+            # 기존의 오류가 있는 루프를 효율적인 np.convolve로 대체
+            audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
+            # t 값을 오디오 길이에 맞춰 조정하고 슬라이딩 윈도우 합 배열의 길이를 고려
+            # t는 원래 audio 배열의 인덱스를 나타냅니다.
+            for t in range(self.t_center, audio.shape[0], self.t_center):
+                # audio_sum의 인덱스를 원래 audio 배열의 인덱스로부터 계산합니다.
+                audio_sum_idx = max(0, t - self.window // 2)
+                
+                # t_query 범위 내의 가장 조용한 지점을 찾습니다.
+                local_sum = audio_sum[audio_sum_idx - self.t_query // 2 : audio_sum_idx + self.t_query // 2]
+                if local_sum.size == 0:
+                    continue
+                
+                min_index_local = np.argmin(local_sum)
+                
+                # audio 배열에 대한 실제 분할 지점 인덱스를 계산합니다.
+                split_point = (audio_sum_idx - self.t_query // 2) + min_index_local
+                
+                opt_ts.append(split_point)
+
+        s = 0
+        audio_opt = []
+        t = None
+        t1 = ttime()
         inp_f0 = None
-        if hasattr(f0_file, "name"):
+        if hasattr(f0_file, "name") == True:
             try:
                 with open(f0_file.name, "r") as f:
                     lines = f.read().strip("\n").split("\n")
-                inp_f0 = np.array([[float(i) for i in line.split(",")] for line in lines], dtype="float32")
+                inp_f0 = []
+                for line in lines:
+                    inp_f0.append([float(i) for i in line.split(",")])
+                inp_f0 = np.array(inp_f0, dtype="float32")
             except:
                 traceback.print_exc()
-    
-        # F0 계산을 전체 패딩 오디오에 대해 한 번만 수행
-        p_len = audio_pad.shape[0] // self.window
+        sid = torch.tensor(sid, device=self.device).unsqueeze(0).long()
         pitch, pitchf = None, None
         if if_f0 == 1:
             pitch, pitchf = self.get_f0(
@@ -485,73 +512,41 @@ class VC(object):
                 crepe_hop_length,
                 inp_f0,
             )
-            
-            # F0 길이가 p_len과 일치하지 않을 경우 보간 수행
-            if len(pitch) != p_len:
-                print(f"Warning: F0 length mismatch. Expected {p_len}, got {len(pitch)}. Resampling...")
-                pitch = np.interp(np.linspace(0, 1, p_len), np.linspace(0, 1, len(pitch)), pitch)
-                pitchf = np.interp(np.linspace(0, 1, p_len), np.linspace(0, 1, len(pitchf)), pitchf)
-            
-            # PyTorch 텐서로 변환
+            pitch = pitch[:p_len]
+            pitchf = pitchf[:p_len]
+            if self.device == "mps":
+                pitchf = pitchf.astype(np.float32)
             pitch = torch.tensor(pitch, device=self.device).unsqueeze(0).long()
             pitchf = torch.tensor(pitchf, device=self.device).unsqueeze(0).float()
-        
-        opt_ts = []
-        if audio_pad.shape[0] > self.t_max:
-            audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
-            for t in range(self.t_center, audio.shape[0], self.t_center):
-                audio_sum_idx = max(0, t - self.window // 2)
-                local_sum = audio_sum[audio_sum_idx - self.t_query // 2: audio_sum_idx + self.t_query // 2]
-                if local_sum.size == 0:
-                    continue
-                min_index_local = np.argmin(local_sum)
-                split_point = (audio_sum_idx - self.t_query // 2) + min_index_local
-                opt_ts.append(split_point)
-    
-        # 병렬 처리 및 F0 슬라이싱 로직
-        s = 0
-        audio_opt = []
-        
-        # 첫 번째 루프를 제거하고, 마지막 조각 처리 루프와 통합
-        all_chunks = opt_ts + [audio.shape[0]] # 분할 지점에 전체 오디오 끝 추가
-        
-        for t in all_chunks:
-            # 오디오 조각 및 F0 슬라이싱 인덱스 계산
-            start_audio_idx = s
-            end_audio_idx = t + self.t_pad2 + self.window
-            start_f0_idx = s // self.window
-            end_f0_idx = end_audio_idx // self.window
-    
+        t2 = ttime()
+        times[1] += t2 - t1
+        for t in opt_ts:
+            t = t // self.window * self.window
             if if_f0 == 1:
-                audio_chunk = audio_pad[start_audio_idx:end_audio_idx]
-                pitch_chunk = pitch[:, start_f0_idx:end_f0_idx]
-                pitchf_chunk = pitchf[:, start_f0_idx:end_f0_idx]
-                
                 audio_opt.append(
                     self.vc(
                         model,
                         net_g,
                         sid,
-                        audio_chunk,
-                        pitch_chunk,
-                        pitchf_chunk,
+                        audio_pad[s : t + self.t_pad2 + self.window],
+                        pitch[:, s // self.window : (t + self.t_pad2) // self.window],
+                        pitchf[:, s // self.window : (t + self.t_pad2) // self.window],
                         times,
                         index,
                         big_npy,
                         index_rate,
                         version,
                         protect,
-                        len(pitch_chunk.squeeze())
+                        (t + self.t_pad2) // self.window - s // self.window
                     )[self.t_pad_tgt : -self.t_pad_tgt]
                 )
             else:
-                audio_chunk = audio_pad[start_audio_idx:end_audio_idx]
                 audio_opt.append(
                     self.vc(
                         model,
                         net_g,
                         sid,
-                        audio_chunk,
+                        audio_pad[s : t + self.t_pad2 + self.window],
                         None,
                         None,
                         times,
@@ -560,24 +555,58 @@ class VC(object):
                         index_rate,
                         version,
                         protect,
-                        len(audio_chunk) // self.window
+                        (t + self.t_pad2) // self.window - s // self.window
                     )[self.t_pad_tgt : -self.t_pad_tgt]
                 )
             s = t
-            
+        if if_f0 == 1:
+            audio_opt.append(
+                self.vc(
+                    model,
+                    net_g,
+                    sid,
+                    audio_pad[t:],
+                    pitch[:, t // self.window :] if t is not None else pitch,
+                    pitchf[:, t // self.window :] if t is not None else pitchf,
+                    times,
+                    index,
+                    big_npy,
+                    index_rate,
+                    version,
+                    protect,
+                    p_len - t // self.window if t is not None else p_len
+                )[self.t_pad_tgt : -self.t_pad_tgt]
+            )
+        else:
+            audio_opt.append(
+                self.vc(
+                    model,
+                    net_g,
+                    sid,
+                    audio_pad[t:],
+                    None,
+                    None,
+                    times,
+                    index,
+                    big_npy,
+                    index_rate,
+                    version,
+                    protect,
+                    p_len - t // self.window if t is not None else p_len
+                )[self.t_pad_tgt : -self.t_pad_tgt]
+            )
         audio_opt = np.concatenate(audio_opt)
         if rms_mix_rate != 1:
             audio_opt = change_rms(audio, 16000, audio_opt, tgt_sr, rms_mix_rate)
         if resample_sr >= 16000 and tgt_sr != resample_sr:
-            audio_opt = librosa.resample(audio_opt, orig_sr=tgt_sr, target_sr=resample_sr)
-        
+            audio_opt = librosa.resample(
+                audio_opt, orig_sr=tgt_sr, target_sr=resample_sr
+            )
         audio_max = np.abs(audio_opt).max() / 0.99
         max_int16 = 32768
         if audio_max > 1:
             max_int16 /= audio_max
         audio_opt = (audio_opt * max_int16).astype(np.int16)
-    
-        # 변수 정리
         del pitch, pitchf, sid
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
