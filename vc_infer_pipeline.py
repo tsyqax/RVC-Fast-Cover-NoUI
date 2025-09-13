@@ -300,9 +300,6 @@ class VC(object):
              f0 = f0.cpu().numpy()
              uv = uv.cpu().numpy()
 
-             f0 = f0[:p_len]
-             uv = uv[:p_len]
-
         f0 *= pow(2, f0_up_key / 12)
 
         tf0 = self.sr // self.window
