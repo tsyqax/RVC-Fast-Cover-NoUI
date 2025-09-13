@@ -166,7 +166,7 @@ def get_vc(device, is_half, config, model_path):
     vc = VC(tgt_sr, config)
     return cpt, version, net_g, tgt_sr, vc
 
-def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model):
+def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_path):
     if f0_method not in ['rmvpe', 'fcpe']:
         print("Warning: f0 method is not supported. Using 'rmvpe'.")
         f0_method = 'rmvpe'
@@ -219,8 +219,8 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
 
         # Use Pool with initializer to handle model loading in each worker
         # Note: 'cpt' and 'hubert_model' objects are not passed directly to 'initargs'
-        # Only paths and simple variables are passed.
-        with Pool(processes=num_workers, initializer=worker_initializer, initargs=(cpt['model_path'], hubert_model.name, "cuda:0", True)) as p:
+        # Pass the model path directly instead of trying to find it in the cpt dictionary
+        with Pool(processes=num_workers, initializer=worker_initializer, initargs=(rvc_model_path, hubert_model.name, "cuda:0", True)) as p:
             processed_chunks = p.map(process_chunk, args_list)
         
         audio_opt = np.concatenate(processed_chunks)
