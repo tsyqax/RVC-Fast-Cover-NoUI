@@ -90,6 +90,8 @@ def pitch_song(pitch_vocal_path, pitch_other_path, pitch_vocal, pitch_other, son
       os.remove(input_file)
     pitout0 = os.path.join(os.getcwd(), 'to_rvc')
     os.makedirs(pitout0, exist_ok=True)
+    pitout1 = os.path.join(os.getcwd(), 'to_merge')
+    os.makedirs(pitout1, exist_ok=True)
     if pitch_vocal != 0:
       pitch_vocal = 2 ** (pitch_vocal / 10)
       change_pitch(input_file=pitch_vocal_path, output_file=os.path.join(os.getcwd(), 'to_rvc', 'rvc_vocal.mp3'), pitch_factor=pitch_vocal)
