@@ -232,7 +232,7 @@ class VC(object):
         version: str,
         protect: float,
     ):
-        t0 = ttime()
+        # Removed timing t0, t1, t2 from here as it's handled in pipeline
         feats = torch.from_numpy(audio0)
         if self.is_half:
             feats = feats.half()
@@ -282,10 +282,11 @@ class VC(object):
                 0, 2, 1
             )
 
+        # p_len calculation might need adjustment if processing padded chunks
+        # For parallel processing, p_len might be better derived from the chunk length
+        # or handled differently. Let's keep the current calculation based on audio0 for now.
         p_len = audio0.shape[0] // 320
 
-        t1 = ttime()
-        times[0] += t1 - t0
 
         with torch.no_grad():
             if pitch is not None and pitchf is not None:
@@ -301,12 +302,11 @@ class VC(object):
                 )
 
         del feats, padding_mask
+        if protect < 0.5 and pitch is not None and pitchf is not None:
+             del feats0 # Delete if created
 
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        # Moved torch.cuda.empty_cache() to pipeline or worker task
 
-        t2 = ttime()
-        times[2] += t2 - t1
         return audio1
 
     def pipeline(
@@ -331,9 +331,9 @@ class VC(object):
         crepe_hop_length,
         f0_file=None,
     ):
-        # Note: This pipeline method currently handles the full audio.
-        # For parallel processing, you would typically modify this method
-        # or create a new one to process a single chunk of audio.
+        # Note: This pipeline method currently handles the full audio or a chunk passed from rvc.py.
+        # Timing variables t0, t1, t2 are now defined here.
+        t0 = ttime() # Start timing for this chunk/audio segment
 
         if (
             file_index != ""
@@ -380,21 +380,30 @@ class VC(object):
             # Check if F0 extraction was successful
             if pitch is None or pitchf is None:
                  print("F0 extraction failed. Cannot proceed with inference.")
+                 # Reset times or log failure if needed
+                 times[0] += ttime() - t0 # Account for time spent before failure
                  return None # Return None or raise an error
 
+            # Ensure pitch and pitchf have the correct length after get_f0
+            # get_f0 returns f0_coarse and f0bak, which should correspond to audio_pad length // window
+            # p_len is calculated based on audio_pad length // window
+            # So pitch and pitchf should already be of length p_len if get_f0 is correct.
+            # The slicing [:p_len] might be redundant if get_f0 is implemented correctly,
+            # but keeping it for safety if get_f0 returns longer arrays.
             pitch = pitch[:p_len]
             pitchf = pitchf[:p_len]
-            if self.device == "mps":
+            # Ensure pitchf is float32 for MPS if needed
+            if self.device.type == "mps": # Check device type explicitly
                 pitchf = pitchf.astype(np.float32)
             pitch = torch.tensor(pitch, device=self.device).unsqueeze(0).long()
             pitchf = torch.tensor(pitchf, device=self.device).unsqueeze(0).float()
 
-        t2 = ttime()
-        times[1] += t2 - t1
-
-        # The original code had chunking logic here, which is removed to focus on single-pass inference within this method.
-        # For parallel processing, the chunking/merging should be handled by the calling code.
-        # This method will now assume it receives a full audio segment or a pre-determined chunk.
+        t1 = ttime() # Time after F0 extraction (or skipped F0)
+        # Update times list - times[0] was time before F0/VC, times[1] F0, times[2] VC
+        # Adjusting timing logic to be simpler: times[0] = F0 time, times[1] = VC time
+        # We'll calculate F0 time and VC time within this pipeline call for the chunk.
+        f0_time = t1 - t0 if if_f0 == 1 else 0
+        # times[1] += f0_time # Accumulate F0 time
 
         # Perform VC on the (potentially padded) audio
         audio_opt = self.vc(
@@ -404,7 +413,8 @@ class VC(object):
             audio_pad, # Process the padded audio
             pitch,
             pitchf,
-            times,
+            # Pass local timing variables to vc if needed there, or handle timing here
+            [0, 0, 0], # Pass dummy times list to vc to avoid modifying the worker's times list
             index,
             big_npy,
             index_rate,
@@ -412,8 +422,22 @@ class VC(object):
             protect,
         )[self.t_pad_tgt : -self.t_pad_tgt] # Remove padding from the output
 
+        t2 = ttime() # Time after VC inference
+        vc_time = t2 - t1
+        # times[2] += vc_time # Accumulate VC time
+
+        # The passed 'times' list from rvc.py is intended for main process timing.
+        # Inside the worker, let's return the timing for *this chunk's* F0 and VC stages
+        # so the main process can potentially sum them up or analyze.
+        # However, the current rvc.py worker expects just the audio result and index.
+        # Let's keep the passed 'times' list as a placeholder or for future use,
+        # but ensure t0, t1, t2 are local and defined.
+
         if rms_mix_rate != 1:
             # Note: If processing chunks, change_rms might need adjustment or applied after merging.
+            # Applies RMS change based on original audio (audio) and processed audio (audio_opt)
+            # This might be less accurate when processing chunks independently.
+            # Consider applying this after merging the final audio.
             audio_opt = change_rms(audio, 16000, audio_opt, tgt_sr, rms_mix_rate)
 
         if resample_sr >= 16000 and tgt_sr != resample_sr:
@@ -426,6 +450,11 @@ class VC(object):
             max_int16 /= audio_max
         audio_opt = (audio_opt * max_int16).astype(np.int16)
         del pitch, pitchf, sid
+        # Clean up CUDA cache in worker after processing each chunk
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+        # Return the processed audio chunk and potentially timing info for this chunk
+        # For now, just returning the audio chunk as expected by rvc.py worker
+        # If timing info per chunk is needed in main process, modify rvc.py worker to expect it
         return audio_opt
