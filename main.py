@@ -88,7 +88,8 @@ def pitch_song(pitch_vocal_path, pitch_other_path, pitch_vocal, pitch_other, son
       pitch_command = ["ffmpeg", "-i", input_file, "-filter:a", filter_string, "-y", output_file]
       subprocess.run(pitch_command, check=True)
       os.remove(input_file)
-    
+    pitout0 = os.path.join(os.getcwd(), 'to_rvc')
+    os.makedirs(pitout0, exist_ok=True)
     if pitch_vocal != 0:
       pitch_vocal = 2 ** (pitch_vocal / 10)
       change_pitch(input_file=pitch_vocal_path, output_file=os.path.join(os.getcwd(), 'to_rvc', 'rvc_vocal.mp3'), pitch_factor=pitch_vocal)
