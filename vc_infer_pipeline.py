@@ -287,7 +287,7 @@ class VC(object):
                  self.model_fcpe = FCPE(
                      os.path.join(BASE_DIR, 'DIR', 'infers', 'fcpe.pt'), device=self.device
                  )
-             f0, uv = self.model_fcpe.compute_f0_uv(x.cpu().numpy(), p_len=x.shape[-1])
+             f0, uv = self.model_fcpe.compute_f0_uv(x, p_len=x.shape[-1])
              f0 = torch.from_numpy(f0).to(x.device)
              uv = torch.from_numpy(uv).to(x.device)
 
