@@ -132,68 +132,61 @@ version_worker = None
 tgt_sr_worker = None
 shm_worker = None # Shared memory handle in the worker
 
-def worker_initializer(model_paths, config_dict, gpu_id=None): # Added gpu_id
+def initialize_worker(model_paths_dict, config_dict_reverted):
     """
     Initializer function for the multiprocessing Pool.
     Loads models once per worker process.
-    Optionally sets GPU device for the worker.
+    GPU setting will be handled in worker_task.
     """
     global hubert_model_worker, rvc_model_worker, vc_worker, net_g_worker, version_worker, tgt_sr_worker
-    device_str = config_dict['device']
-    is_half = config_dict['is_half']
-    hubert_model_path = model_paths['hubert']
-    rvc_model_path = model_paths['rvc']
-
-    # Set GPU device for the worker if gpu_id is provided and CUDA is available
-    if gpu_id is not None and torch.cuda.is_available():
-        try:
-            torch.cuda.set_device(gpu_id)
-            device = torch.device(f"cuda:{gpu_id}")
-            config_dict['device'] = device # Update device in config_dict for VC init
-            print(f"Worker process initialized on GPU {gpu_id}")
-        except Exception as e:
-            print(f"Warning: Could not set GPU {gpu_id} for worker: {e}")
-            # Fallback to default device or handle as needed
-            device = torch.device(device_str) # Use original device string
-    else:
-        device = torch.device(device_str) # Use original device string if no gpu_id or CUDA not available
+    device_str = config_dict_reverted['device']
+    is_half = config_dict_reverted['is_half']
+    hubert_model_path = model_paths_dict['hubert']
+    rvc_model_path = model_paths_dict['rvc']
 
     try:
-        # Load models using the potentially updated device
-        hubert_model_worker = load_hubert(device, is_half, hubert_model_path)
-        cpt, version_worker, net_g_worker, tgt_sr_worker, vc_worker = get_vc(device, is_half, Config(device, is_half), rvc_model_path)
+        # Load models using the original device string
+        hubert_model_worker = load_hubert(torch.device(device_str), is_half, hubert_model_path)
+        # Need to create Config with the *correct* device for VC. Let's pass device_str to Config too.
+        cpt, version_worker, net_g_worker, tgt_sr_worker, vc_worker = get_vc(torch.device(device_str), is_half, Config(torch.device(device_str), is_half), rvc_model_path)
     except Exception as e:
         print(f"Error loading models in worker initializer: {e}")
         hubert_model_worker = None
-        rvc_model_worker = None # Ensure these are None on failure
+        rvc_model_worker = None
 
-def worker_task(chunk_info):
+def process_chunk_task(chunk_info_with_gpu):
     """
     Task function executed by each worker process.
-    Receives shared memory info and processes the chunk.
+    Receives shared memory info, chunk index, crossfade length, and gpu_id.
+    Sets GPU device at the start.
     """
     global hubert_model_worker, rvc_model_worker, vc_worker, net_g_worker, version_worker, tgt_sr_worker, shm_worker
 
+    # Set GPU device for the worker if gpu_id is provided and CUDA is available
+    (shm_name, shm_shape, shm_dtype, input_path, times, pitch_change, f0_method, index_path,
+     index_rate, if_f0, filter_radius, rms_mix_rate, protect, crepe_hop_length, index, crossfade_length, gpu_id) = chunk_info_with_gpu # Added gpu_id
+
+    if gpu_id is not None and torch.cuda.is_available():
+        try:
+            torch.cuda.set_device(gpu_id)
+            # print(f"Worker process {os.getpid()} using GPU {gpu_id}") # Optional: for debugging
+        except Exception as e:
+            print(f"Warning: Could not set GPU {gpu_id} for worker {os.getpid()}: {e}")
+            # Continue with default device or handle error
+
+
     if hubert_model_worker is None or net_g_worker is None:
-         print("Models not loaded in worker. Cannot process chunk.")
-         # Return index and an error indicator or exception
-         if len(chunk_info) > 0 and isinstance(chunk_info[-2], int): # Check if index is the second to last element
-             return (chunk_info[-2], Exception("Models not loaded in worker"))
-         else:
-             return (None, Exception("Models not loaded in worker")) # Cannot return index if not provided
+         print(f"Models not loaded in worker {os.getpid()}. Cannot process chunk.")
+         return (index, Exception("Models not loaded in worker"))
+
 
     try:
-        # Unpack chunk info including shared memory details and index
-        (shm_name, shm_shape, shm_dtype, input_path, times, pitch_change, f0_method, index_path,
-         index_rate, if_f0, filter_radius, rms_mix_rate, protect, crepe_hop_length, index, crossfade_length) = chunk_info
-
         # Attach to the shared memory and reconstruct the numpy array
         existing_shm = shared_memory.SharedMemory(name=shm_name)
-        # Reconstruct the numpy array from shared memory
         audio_chunk = np.ndarray(shm_shape, dtype=shm_dtype, buffer=existing_shm.buf)
 
         # Perform VC inference using the pre-loaded models
-        # TODO: Modify VC class in vc_infer_pipeline.py to handle chunks efficiently
+        # Ensure vc_worker uses the correct device (should be set by torch.cuda.set_device)
         result = vc_worker.pipeline(
             hubert_model_worker, net_g_worker, 0, audio_chunk, input_path, times, pitch_change,
             f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr_worker,
@@ -209,12 +202,8 @@ def worker_task(chunk_info):
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"WORKER TASK ERROR: {e}")
-        # Return exception and index for main process to handle
-        if len(chunk_info) > 0 and isinstance(chunk_info[-2], int): # Check if index is the second to last element
-             return (chunk_info[-2], e)
-        else:
-             return (None, e) # Cannot return index if not provided
+        print(f"WORKER TASK ERROR in process {os.getpid()}: {e}")
+        return (index, e)
 
 
 def load_hubert(device, is_half, model_path):
@@ -348,134 +337,6 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
 
 
         # Prepare model paths and config for the initializer
-        model_paths = {
-            'hubert': os.path.join(os.getcwd(), 'infers', 'hubert_base.pt'),  # 실제 허버트 모델 경로로 변경하세요!
-            'rvc': rvc_model_input        # 실제 RVC 모델 경로로 변경하세요!
-        }
-        config_dict = {
-            'device': vc.device, # Use device from the config object created in main
-            'is_half': vc.is_half # Use is_half from the config object created in main
-        }
-
-
-        num_chunks = len(chunks)
-        num_processes = min(cpu_count(), num_chunks) # Use min of CPU count and num chunks
-        # If using GPU, limit num_processes to the number of GPUs
-        if torch.cuda.is_available():
-            num_processes = min(torch.cuda.device_count(), num_processes)
-
-
-        # Use multiprocessing Pool with initializer
-        # The initializer loads the models once per process and sets GPU
-        # Pass shared memory info and index, and gpu_id to worker_task via pool.map
-        # worker_initializer requires model_paths, config_dict, and gpu_id
-        # We need to pass the gpu_id to the initializer for each worker.
-        # This is tricky with pool.map. A common approach is to create separate initargs for each worker
-        # or pass the gpu_id along with the chunk info and handle it in worker_task (less ideal for init).
-        # Let's adjust worker_initializer to take gpu_id and pass it to Config.
-
-        # A simpler approach with pool.map is to pass the gpu_id in the chunk_info
-        # and have the worker_task handle setting the device, or use a dedicated initializer for each worker.
-        # Let's refine the worker_initializer to accept gpu_id. The Pool will create processes and run the initializer.
-
-        # We need a way to assign a unique gpu_id to each process created by the pool.
-        # The initializer runs *after* the process is forked/spawned.
-        # We can't easily pass a *specific* gpu_id to a *specific* process via initargs in pool.map in this way.
-
-        # Let's revert the worker_initializer signature and pass the gpu_id in chunk_info
-        # and set the device at the beginning of worker_task. This is a common workaround
-        # when using pool.map with per-process configuration like GPU assignment.
-
-        # Revert worker_initializer signature
-        def worker_initializer_reverted(model_paths_dict, config_dict_reverted):
-            """
-            Initializer function for the multiprocessing Pool.
-            Loads models once per worker process.
-            GPU setting will be handled in worker_task.
-            """
-            global hubert_model_worker, rvc_model_worker, vc_worker, net_g_worker, version_worker, tgt_sr_worker
-            device_str = config_dict_reverted['device']
-            is_half = config_dict_reverted['is_half']
-            hubert_model_path = model_paths_dict['hubert']
-            rvc_model_path = model_paths_dict['rvc']
-
-            try:
-                # Load models using the original device string
-                hubert_model_worker = load_hubert(torch.device(device_str), is_half, hubert_model_path)
-                # Need to create Config with the *correct* device for VC. Let's pass device_str to Config too.
-                cpt, version_worker, net_g_worker, tgt_sr_worker, vc_worker = get_vc(torch.device(device_str), is_half, Config(torch.device(device_str), is_half), rvc_model_path)
-            except Exception as e:
-                print(f"Error loading models in worker initializer: {e}")
-                hubert_model_worker = None
-                rvc_model_worker = None
-
-
-        # Update worker_task to set GPU device
-        def worker_task_with_gpu(chunk_info_with_gpu):
-            """
-            Task function executed by each worker process.
-            Receives shared memory info, chunk index, crossfade length, and gpu_id.
-            Sets GPU device at the start.
-            """
-            global hubert_model_worker, rvc_model_worker, vc_worker, net_g_worker, version_worker, tgt_sr_worker, shm_worker
-
-            # Set GPU device for the worker if gpu_id is provided and CUDA is available
-            (shm_name, shm_shape, shm_dtype, input_path, times, pitch_change, f0_method, index_path,
-             index_rate, if_f0, filter_radius, rms_mix_rate, protect, crepe_hop_length, index, crossfade_length, gpu_id) = chunk_info_with_gpu # Added gpu_id
-
-            if gpu_id is not None and torch.cuda.is_available():
-                try:
-                    torch.cuda.set_device(gpu_id)
-                    # print(f"Worker process {os.getpid()} using GPU {gpu_id}") # Optional: for debugging
-                except Exception as e:
-                    print(f"Warning: Could not set GPU {gpu_id} for worker {os.getpid()}: {e}")
-                    # Continue with default device or handle error
-
-
-            if hubert_model_worker is None or net_g_worker is None:
-                 print(f"Models not loaded in worker {os.getpid()}. Cannot process chunk.")
-                 return (index, Exception("Models not loaded in worker"))
-
-
-            try:
-                # Attach to the shared memory and reconstruct the numpy array
-                existing_shm = shared_memory.SharedMemory(name=shm_name)
-                audio_chunk = np.ndarray(shm_shape, dtype=shm_dtype, buffer=existing_shm.buf)
-
-                # Perform VC inference using the pre-loaded models
-                # Ensure vc_worker uses the correct device (should be set by torch.cuda.set_device)
-                result = vc_worker.pipeline(
-                    hubert_model_worker, net_g_worker, 0, audio_chunk, input_path, times, pitch_change,
-                    f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr_worker,
-                    0, rms_mix_rate, version_worker, protect, crepe_hop_length
-                )
-
-                # Explicitly close the shared memory handle in the worker
-                existing_shm.close()
-
-                # Return result with its original index
-                return (index, result)
-
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                print(f"WORKER TASK ERROR in process {os.getpid()}: {e}")
-                return (index, e)
-
-
-        # Update chunk_tasks data to include gpu_id
-        chunk_tasks_with_gpu = []
-        for i, chunk in enumerate(chunks):
-             shm = shared_memory.SharedMemory(create=True, size=chunk.nbytes)
-             chunk_np_array = np.ndarray(chunk.shape, dtype=chunk.dtype, buffer=shm.buf)
-             chunk_np_array[:] = chunk[:]
-             gpu_id = i % torch.cuda.device_count() if torch.cuda.is_available() else None # Assign GPU based on chunk index
-             chunk_tasks_with_gpu.append((shm.name, chunk.shape, chunk.dtype, input_path, times, pitch_change, f0_method, index_path,
-                                  index_rate, if_f0, filter_radius, rms_mix_rate, protect, crepe_hop_length, i, crossfade_length, gpu_id))
-             shm_list.append(shm) # Keep track of shm objects
-
-
-        # Prepare model paths and config for the initializer
         model_paths_for_initializer = {
             'hubert': os.path.join(os.getcwd(), 'infers', 'hubert_base.pt'),
             'rvc': rvc_model_input
@@ -491,10 +352,10 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
             num_processes = min(torch.cuda.device_count(), num_processes) # Limit processes by GPU count if using GPU
 
         # Use multiprocessing Pool with initializer
-        with Pool(processes=num_processes, initializer=worker_initializer_reverted, initargs=((model_paths_for_initializer, config_dict_for_initializer),)) as pool:
+        with Pool(processes=num_processes, initializer=initialize_worker, initargs=((model_paths_for_initializer, config_dict_for_initializer),)) as pool:
             # Map chunk tasks to worker processes
             # Pass the updated chunk tasks including gpu_id
-            processed_results = pool.map(worker_task_with_gpu, chunk_tasks_with_gpu)
+            processed_results = pool.map(process_chunk_task, chunk_tasks)
 
 
         # Collect and sort results and unlink shared memory
