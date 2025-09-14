@@ -144,11 +144,14 @@ def process_chunk(args):
             crepe_hop_length,
             None
         )
-        if pitch is not None:
-            pitch = pitch[np.newaxis, :]
-        if pitchf is not None:
-            pitchf = pitchf[np.newaxis, :]
-    
+        if pitch is not None and pitchf is not None:
+            pitch = torch.from_numpy(pitch).to(vc_global.device)
+            pitchf = torch.from_numpy(pitchf).to(vc_global.device)
+            if vc_global.is_half:
+                pitch = pitch.half()
+                pitchf = pitchf.half()
+    pitch = torch.from_numpy(pitch).to(vc_global.device)
+    pitchf = torch.from_numpy(pitchf).to(vc_global.device)    
     return vc_global.pipeline(
         hubert_model_global,
         net_g_global,
