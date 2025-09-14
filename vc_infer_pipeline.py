@@ -287,7 +287,7 @@ class VC(object):
 
                  self.model_fcpe = model = spawn_bundled_infer_model(device=self.device)
              hop_size = 160
-             audio, sr = librosa.load(input_audio_path, sr=sr)
+             audio, sr = librosa.load(input_audio_path, sr=16000)
              audio = librosa.to_mono(audio)
              audio_length = len(audio)
              f0_target_length = (audio_length // hop_size) + 1
