@@ -331,7 +331,7 @@ class VC(object):
         protect,
         p_len
     ):
-        feats = torch.from_numpy(audio0.copy())
+        feats = torch.from_numpy(audio0)
         if self.is_half:
             feats = feats.half()
         else:
@@ -503,8 +503,8 @@ class VC(object):
         times[1] += t2 - t1
         for t in opt_ts:
             t = t // self.window * self.window
-            audio_chunk = audio[s:t]
-            
+            audio_chunk = np.ascontiguousarray(audio[s:t]) # Force it to be contiguous
+
             if if_f0 == 1:
                 pitch_chunk = pitch[:, s // self.window : t // self.window]
                 pitchf_chunk = pitchf[:, s // self.window : t // self.window]
@@ -544,8 +544,8 @@ class VC(object):
             audio_opt.append(processed_audio)
             s = t
 
-        # 마지막 조각 처리
-        audio_chunk_last = audio[s:]
+        # Handle the last chunk
+        audio_chunk_last = np.ascontiguousarray(audio[s:]) # Force it to be contiguous
         if if_f0 == 1:
             pitch_chunk_last = pitch[:, s // self.window:]
             pitchf_chunk_last = pitchf[:, s // self.window:]
