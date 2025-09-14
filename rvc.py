@@ -309,8 +309,6 @@ def rvc_infer(
         if len(audio) % num_workers != 0:
             chunks[-1] = np.concatenate((chunks[-1], audio[num_workers * chunk_length:]))
 
-        args_list = []
-        for i, chunk in enumerate(chunks):
         audio_pad = np.pad(audio, (vc.t_pad, vc.t_pad), mode="reflect")
         p_len = (len(audio_pad)) // vc.window
         if if_f0 == 1:
