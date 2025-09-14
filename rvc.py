@@ -1,8 +1,7 @@
-# rvc.py
-
 from multiprocessing import cpu_count, Pool, current_process
 from pathlib import Path
 import traceback
+
 import torch
 from fairseq import checkpoint_utils
 from scipy.io import wavfile
@@ -21,7 +20,6 @@ from infer_pack.models import (
 )
 from my_utils import load_audio
 from vc_infer_pipeline import VC
-import faiss
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -32,8 +30,6 @@ cpt_global = None
 vc_global = None
 version_global = None
 config_global = None
-index_global = None
-big_npy_global = None
 
 class Config:
     def __init__(self, device, is_half):
@@ -112,87 +108,56 @@ class Config:
 
 
 def process_chunk(args):
-    try:
-        (
-            combined_chunk,
-            input_path,
-            times,
-            pitch_change,
-            f0_method,
-            index_rate,
-            if_f0,
-            filter_radius,
-            tgt_sr,
-            rms_mix_rate,
-            version,
-            protect,
-            crepe_hop_length,
-            p_len,
-            f0_file,
-        ) = args
+    # This function is executed by a worker process
+    (
+        audio_chunk,
+        input_path,
+        times,
+        pitch_change,
+        f0_method,
+        index_path,
+        index_rate,
+        if_f0,
+        filter_radius,
+        tgt_sr,
+        rms_mix_rate,
+        version,
+        protect,
+        crepe_hop_length,
+        p_len
+    ) = args
+    
+    return vc_global.pipeline(
+        hubert_model_global,
+        net_g_global,
+        0,
+        audio_chunk,
+        input_path,
+        times,
+        pitch_change,
+        f0_method,
+        index_path,
+        index_rate,
+        if_f0,
+        filter_radius,
+        tgt_sr,
+        0,
+        rms_mix_rate,
+        version,
+        protect,
+        crepe_hop_length,
+        p_len
+    )
 
-        audio_pad = np.pad(combined_chunk, (vc_global.t_pad, vc_global.t_pad), mode="reflect")
-        pitch, pitchf = None, None
-        
-        if if_f0 == 1:
-            pitch, pitchf = vc_global.get_f0(
-                input_path,
-                audio_pad,
-                p_len,
-                pitch_change,
-                f0_method,
-                filter_radius,
-                crepe_hop_length,
-                f0_file
-            )
-
-            # 💡 Critical check: Ensure pitch is a valid non-empty array
-            if not isinstance(pitch, np.ndarray) or pitch.size == 0:
-                print(f"[{current_process().name}] Warning: Pitch extraction failed for a chunk. Skipping this chunk.")
-                return np.array([])
-            
-            p_len = min(p_len, pitch.shape[0])
-            pitch = pitch[:p_len]
-            pitchf = pitchf[:p_len]
-        else:
-            pitch = None
-            pitchf = None
-
-        return vc_global.vc(
-            hubert_model_global,
-            net_g_global,
-            0, # Assuming sid is 0, adjust if needed
-            combined_chunk,
-            pitch,
-            pitchf,
-            times,
-            index_global,
-            big_npy_global,
-            index_rate,
-            version,
-            protect,
-            p_len,
-        )
-    except Exception as e:
-        print(f"[{current_process().name}] Error in process_chunk: {e}")
-        traceback.print_exc()
-        return np.array([])
-
-def worker_initializer(model_path, hubert_path, device, is_half, index_path):
-    global hubert_model_global, net_g_global, cpt_global, vc_global, version_global, config_global, index_global, big_npy_global
+def worker_initializer(model_path, hubert_path, device, is_half):
+    # This function is called once for each worker process
+    global hubert_model_global, net_g_global, cpt_global, vc_global, version_global, config_global
     print(f"[{current_process().name}] Loading models...")
     
     try:
         config_global = Config(device, is_half)
         hubert_model_global = load_hubert(config_global.device, config_global.is_half, hubert_path)
         cpt_global, version_global, net_g_global, _, vc_global = get_vc(config_global.device, config_global.is_half, config_global, model_path)
-
-        if index_path and os.path.exists(index_path) and os.path.getsize(index_path) > 0:
-            index_global = faiss.read_index(index_path)
-            big_npy_global = index_global.reconstruct_n(0, index_global.ntotal)
-            if is_half:
-                big_npy_global = big_npy_global.astype('float16')
-        
         print(f"[{current_process().name}] Models loaded.")
     except Exception as e:
         print(f"[{current_process().name}] Error loading models: {e}")
@@ -264,15 +229,13 @@ def rvc_infer(
     vc,
     hubert_model,
     rvc_model_path,
-    hubert_model_path=os.path.join(os.getcwd(), 'infers', 'hubert_base.pt'),
-    f0_file=None,
+    hubert_model_path=os.path.join(os.getcwd(), 'DIR', 'infers', 'hubert_base.pt')
 ):
     if f0_method not in ['rmvpe', 'fcpe']:
         print("Warning: f0 method is not supported. Using 'rmvpe'.")
         f0_method = 'rmvpe'
-    
+
     audio = load_audio(input_path, 16000)
-    audio_chunks = vc.pipeline_get_audio_chunks(audio)
     times = [0, 0, 0]
     if_f0 = cpt.get('f0', 1)
 
@@ -280,77 +243,71 @@ def rvc_infer(
         print("Audio is longer than 1 minute and CUDA is available. Determining optimal worker count...")
         
         try:
-            device = torch.device('cuda:0')
+            # Check if models are on GPU
+            if hubert_model.parameters():
+                device = next(hubert_model.parameters()).device
+            elif net_g.parameters():
+                device = next(net_g.parameters()).device
+            else:
+                device = torch.device('cuda:0')
+                
             prop = torch.cuda.get_device_properties(device)
             total_vram = prop.total_memory / 1024 / 1024 # MB
             
+            # Estimate VRAM usage of one model instance (HuBERT + RVC)
             model_size_mb = 0
-            # A rough estimation of model size is enough for this purpose
-            if hubert_model is not None:
-                for param in hubert_model.parameters():
-                    model_size_mb += param.numel() * param.element_size() / 1024 / 1024
-            if net_g is not None:
-                for param in net_g.parameters():
-                    model_size_mb += param.numel() * param.element_size() / 1024 / 1024
+            for param in hubert_model.parameters():
+                model_size_mb += param.numel() * param.element_size() / 1024 / 1024
+            for param in net_g.parameters():
+                model_size_mb += param.numel() * param.element_size() / 1024 / 1024
             
+            # Use a safe buffer for VRAM
             vram_buffer_mb = 512 # 512MB
+            
+            # Calculate max workers
             num_workers = int((total_vram - vram_buffer_mb) / model_size_mb)
-            num_workers = max(1, num_workers)
-            num_workers = min(num_workers, cpu_count())
+            num_workers = max(1, num_workers) # At least 1 worker
+            num_workers = min(num_workers, cpu_count()) # Don't exceed CPU cores
             
             print(f"Optimal number of workers: {num_workers} (Total VRAM: {total_vram:.2f}MB, Estimated Model size: {model_size_mb:.2f}MB)")
         except Exception as e:
             print(f"Could not determine VRAM. Falling back to CPU count. Error: {e}")
             num_workers = cpu_count()
 
-        chunk_size = (len(audio_chunks) + num_workers - 1) // num_workers
-        
-        args_list = []
-        for i in range(num_workers):
-            start_index = i * chunk_size
-            end_index = min(start_index + chunk_size, len(audio_chunks))
-            
-            if start_index >= len(audio_chunks):
-                continue
+        chunk_length = len(audio) // num_workers
+        chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_workers)]
+        if len(audio) % num_workers != 0:
+            chunks[-1] = np.concatenate((chunks[-1], audio[num_workers * chunk_length:]))
 
-            combined_chunk = np.concatenate(audio_chunks[start_index:end_index])
-            
-            args_list.append(
-                (
-                    combined_chunk,
-                    input_path,
-                    times,
-                    pitch_change,
-                    f0_method,
-                    index_rate,
-                    if_f0,
-                    filter_radius,
-                    tgt_sr,
-                    rms_mix_rate,
-                    version,
-                    protect,
-                    crepe_hop_length,
-                    combined_chunk.shape[0] // vc.window,
-                    f0_file,
-                )
+        args_list = [
+            (
+                chunk,
+                input_path,
+                times,
+                pitch_change,
+                f0_method,
+                index_path,
+                index_rate,
+                if_f0,
+                filter_radius,
+                tgt_sr,
+                rms_mix_rate,
+                version,
+                protect,
+                crepe_hop_length,
+                chunk.shape[0] // vc.window, # 패딩되지 않은 오디오의 p_len 계산
             )
+            for chunk in chunks
+        ]
 
-        with Pool(processes=num_workers, initializer=worker_initializer, initargs=(rvc_model_path, hubert_model_path, "cuda:0", True, index_path)) as p:
+        with Pool(processes=num_workers, initializer=worker_initializer, initargs=(rvc_model_path, hubert_model_path, "cuda:0", True)) as p:
             processed_chunks = p.map(process_chunk, args_list)
         
-        # Filter out empty arrays returned by failed chunks
-        processed_chunks = [chunk for chunk in processed_chunks if chunk.size > 0]
-        
-        if len(processed_chunks) > 0:
-            audio_opt = np.concatenate(processed_chunks)
-        else:
-            print("All audio chunks failed to process. Returning original audio.")
-            audio_opt = audio
+        audio_opt = np.concatenate(processed_chunks)
 
     else:
         print("Audio is short or CUDA is not available. Processing serially.")
-        
-        p_len = audio.shape[0] // vc.window
+        p_len = audio.shape[0] // vc.window # 패딩되지 않은 오디오의 p_len 계산
         
         audio_opt = vc.pipeline(
             hubert_model,
@@ -371,8 +328,6 @@ def rvc_infer(
             version,
             protect,
             crepe_hop_length,
-            p_len,
-            f0_file
+            p_len
         )
-        
     wavfile.write(output_path, tgt_sr, audio_opt)
