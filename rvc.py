@@ -341,7 +341,7 @@ def rvc_infer(
             else:
                 chunk_np = chunk
 
-            #chunk_pad = np.pad(chunk_np, (vc.t_pad, vc.t_pad), mode="reflect")
+            chunk_pad = np.pad(chunk_np, (vc.t_pad, vc.t_pad), mode="reflect")
             
             args_list.append(
                 (
