@@ -38,8 +38,6 @@ Github: SociallyIneptWeeb/AICoverGen 및 Colab: CoverGen_NO_UI_v2 에서 많은 
 
 ---
 
-## NOW IS WORKING
-
 ## Currently in Development  
 (Searching for errors and bugs; operation is not guaranteed)
 
