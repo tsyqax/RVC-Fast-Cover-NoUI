@@ -1,6 +1,5 @@
 from functools import lru_cache
 from time import time as ttime
-
 import faiss
 import librosa
 import numpy as np
@@ -39,7 +38,6 @@ def cache_harvest_f0(input_audio_path, fs, f0max, f0min, frame_period):
 
 
 def change_rms(data1, sr1, data2, sr2, rate):
-    # print(data1.max(),data2.max())
     rms1 = librosa.feature.rms(
         y=data1, frame_length=sr1 // 2 * 2, hop_length=sr1 // 2
     )
@@ -273,7 +271,7 @@ class VC(object):
                 self.model_rmvpe = RMVPE(
                     os.path.join(BASE_DIR, 'DIR', 'infers', 'rmvpe.pt'), is_half=self.is_half, device=self.device
                 )
-            f0 = self.model_rmvpe.infer_from_audio(x, thred=0.015) 
+            f0 = self.model_rmvpe.infer_from_audio(x, thred=0.015)
         elif f0_method == "fcpe":
             if not hasattr(self, "model_fcpe"):
                 from fcpe import FCPE
@@ -282,26 +280,16 @@ class VC(object):
                 )
             f0, uv = self.model_fcpe.compute_f0_uv(x, p_len=p_len)
             
-            # 💡 uv(unvoiced) 값을 사용하여 신뢰도 낮은 F0 제거
-            f0[uv < 0.5] = 0
-            
             if f0.ndim == 2 and f0.shape[0] > 1:
                 f0 = f0[0]
             if uv.ndim == 2 and uv.shape[0] > 1:
                 uv = uv[0]
-
-        # 💡 중앙값 필터 적용 (rmvpe와 fcpe 모두에 적용)
+                
         if filter_radius > 0 and (f0_method == "rmvpe" or f0_method == "fcpe"):
-            # f0가 torch.Tensor일 경우 numpy로 변환 후 필터 적용
-            if isinstance(f0, torch.Tensor):
-                f0 = f0.cpu().numpy()
             f0 = signal.medfilt(f0, filter_radius)
-            # 다시 tensor로 변환
-            if not isinstance(f0, torch.Tensor) and self.device != "cpu":
-                f0 = torch.tensor(f0).to(self.device)
-
+    
         f0 *= pow(2, f0_up_key / 12)
-
+    
         tf0 = self.sr // self.window
         if inp_f0 is not None:
             delta_t = np.round(
@@ -314,7 +302,7 @@ class VC(object):
             f0[self.x_pad * tf0 : self.x_pad * tf0 + len(replace_f0)] = replace_f0[
                 :shape
             ]
-
+    
         if isinstance(f0, torch.Tensor):
             f0bak = f0.clone().detach().cpu().numpy()
             f0_mel = 1127 * torch.log(1 + f0 / 700)
@@ -333,7 +321,7 @@ class VC(object):
             f0_mel[f0_mel <= 1] = 1
             f0_mel[f0_mel > 255] = 255
             f0_coarse = np.rint(f0_mel).astype(np.int)
-
+    
         return f0_coarse, f0bak
 
     def vc(
@@ -424,6 +412,26 @@ class VC(object):
         times[0] += t1 - t0
         times[2] += t2 - t1
         return audio1
+    
+    # 💡 This is the correct location for the new method.
+    def pipeline_get_audio_chunks(self, audio):
+        audio_chunks = []
+        chunk_size = self.t_center
+        overlap_size = self.t_pad * 2
+        
+        start = 0
+        while start < audio.shape[0]:
+            end = start + chunk_size
+            if end > audio.shape[0]:
+                end = audio.shape[0]
+            
+            chunk = np.pad(audio[start:end], (self.t_pad, self.t_pad), mode="reflect")
+            audio_chunks.append(chunk)
+            
+            start += chunk_size - overlap_size 
+            if start < 0:
+                start = 0
+        return audio_chunks
 
     def pipeline(
         self,
@@ -464,22 +472,10 @@ class VC(object):
         
         audio = signal.filtfilt(bh, ah, audio)
         
-        audio_chunks = []
-        chunk_size = self.t_center
-        overlap_size = self.t_pad * 2
-        
-        start = 0
-        while start < audio.shape[0]:
-            end = start + chunk_size
-            if end > audio.shape[0]:
-                end = audio.shape[0]
-            
-            chunk = np.pad(audio[start:end], (self.t_pad, self.t_pad), mode="reflect")
-            audio_chunks.append(chunk)
-            
-            start += chunk_size - overlap_size 
-            if start < 0:
-                start = 0
+        # 💡 REMOVE THE DUPLICATED CODE
+        # audio_chunks = []
+        # chunk_size = self.t_center
+        # ... (rest of the code to be removed)
 
         t1 = ttime()
         inp_f0 = None
@@ -521,6 +517,7 @@ class VC(object):
         t2 = ttime()
         times[1] += t2 - t1
 
+        # 💡 The rest of the pipeline logic stays the same.
         audio_opt = []
         s_frame = 0
         for i, audio_segment in enumerate(audio_chunks):
@@ -561,7 +558,6 @@ class VC(object):
             
             trimmed_output = audio_output[self.t_pad_tgt:len(audio_output) - self.t_pad_tgt]
             audio_opt.append(trimmed_output)
-            
             s_frame += seg_len_frame - (self.t_pad * 2 // self.window)
 
         audio_opt = np.concatenate(audio_opt)
