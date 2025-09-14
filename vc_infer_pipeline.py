@@ -445,25 +445,25 @@ class VC(object):
         audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
         opt_ts = []
         if audio_pad.shape[0] > self.t_max:
-            audio_sum = np.zeros_like(audio)
-            for i in range(self.window):
-                audio_sum += audio_pad[i : i - self.window]
-
+            # 기존의 오류가 있는 루프를 효율적인 np.convolve로 대체
+            audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
+            # t 값을 오디오 길이에 맞춰 조정하고 슬라이딩 윈도우 합 배열의 길이를 고려
+            # t는 원래 audio 배열의 인덱스를 나타냅니다.
             for t in range(self.t_center, audio.shape[0], self.t_center):
-                opt_ts.append(
-                    t
-                    - self.t_query
-                    + np.where(
-                        np.abs(audio_sum[t - self.t_query : t + self.t_query])
-                        == np.abs(audio_sum[t - self.t_query : t + self.t_query]).min()
-                    )[0][0]
-                )
-
-
-
-
-
-
+                # audio_sum의 인덱스를 원래 audio 배열의 인덱스로부터 계산합니다.
+                audio_sum_idx = max(0, t - self.window // 2)
+                
+                # t_query 범위 내의 가장 조용한 지점을 찾습니다.
+                local_sum = audio_sum[audio_sum_idx - self.t_query // 2 : audio_sum_idx + self.t_query // 2]
+                if local_sum.size == 0:
+                    continue
+                
+                min_index_local = np.argmin(local_sum)
+                
+                # audio 배열에 대한 실제 분할 지점 인덱스를 계산합니다.
+                split_point = (audio_sum_idx - self.t_query // 2) + min_index_local
+                
+                opt_ts.append(split_point)
 
         s = 0
         audio_opt = []
@@ -503,15 +503,12 @@ class VC(object):
         times[1] += t2 - t1
         for t in opt_ts:
             t = t // self.window * self.window
-            # 각 조각을 오디오 패딩 없이, 정확한 경계로 자르기
             audio_chunk = audio[s:t]
             
-            # f0 처리도 조각에 맞춰 정확하게 자르기
             if if_f0 == 1:
                 pitch_chunk = pitch[:, s // self.window : t // self.window]
                 pitchf_chunk = pitchf[:, s // self.window : t // self.window]
                 
-                # VC 함수 호출, 패딩 없이 오디오 조각과 f0 정보 전달
                 processed_audio = self.vc(
                     model,
                     net_g,
@@ -546,7 +543,7 @@ class VC(object):
             
             audio_opt.append(processed_audio)
             s = t
-        
+
         # 마지막 조각 처리
         audio_chunk_last = audio[s:]
         if if_f0 == 1:
