@@ -108,13 +108,10 @@ class Config:
 
 
 def process_chunk(args):
-    """
-    This function is executed by a worker process to handle a single audio chunk.
-    """
     (
         audio_chunk,
         input_path,
-        times,  # Missing in your provided code
+        times,
         pitch_change,
         f0_method,
         index_path,
@@ -123,12 +120,10 @@ def process_chunk(args):
         filter_radius,
         tgt_sr,
         rms_mix_rate,
-        version, # Corrected variable name
-        protect, # Corrected variable name
+        version,
+        protect,
         crepe_hop_length,
-        p_len,
-        chunk_pitch,  # New pitch variable for the chunk
-        chunk_pitchf, # New pitchf variable for the chunk
+        p_len
     ) = args
 
     return vc_global.pipeline(
@@ -150,10 +145,7 @@ def process_chunk(args):
         version,
         protect,
         crepe_hop_length,
-        p_len,
-        # Pass the chunk-specific pitch variables
-        chunk_pitch=chunk_pitch,
-        chunk_pitchf=chunk_pitchf,
+        p_len
     )
 
 def worker_initializer(model_path, hubert_path, device, is_half):
@@ -288,8 +280,10 @@ def rvc_infer(
                 crepe_hop_length,
                 None
             )
+            # Add a new axis to convert the 1D array to a 2D array with one row
             pitch = pitch[np.newaxis, :]
             pitchf = pitchf[np.newaxis, :]
+
 
         chunk_length = len(audio) // num_workers
         chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_workers)]
@@ -297,20 +291,9 @@ def rvc_infer(
             chunks[-1] = np.concatenate((chunks[-1], audio[num_workers * chunk_length:]))
 
         args_list = []
-        current_pos = 0
         for i, chunk in enumerate(chunks):
-            start_frame = current_pos // vc.window
-            end_frame = (current_pos + len(chunk)) // vc.window
-            
             chunk_pad = np.pad(chunk, (vc.t_pad, vc.t_pad), mode="reflect")
             
-            if if_f0 == 1:
-                chunk_pitch = pitch[:, start_frame:end_frame]
-                chunk_pitchf = pitchf[:, start_frame:end_frame]
-            else:
-                chunk_pitch = None
-                chunk_pitchf = None
-                
             args_list.append(
                 (
                     chunk_pad,
@@ -327,12 +310,9 @@ def rvc_infer(
                     version,
                     protect,
                     crepe_hop_length,
-                    len(chunk_pad) // vc.window,
-                    chunk_pitch,
-                    chunk_pitchf
+                    len(chunk_pad) // vc.window
                 )
             )
-            current_pos += len(chunk)
 
         with Pool(processes=num_workers, initializer=worker_initializer, initargs=(rvc_model_path, hubert_model_path, "cuda:0", True)) as p:
             processed_chunks = p.map(process_chunk, args_list)
