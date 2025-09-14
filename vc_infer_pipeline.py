@@ -264,41 +264,41 @@ class VC(object):
         global input_audio_path2wav
         time_step = self.window / self.sr * 1000
         f0_min = 50
-        f0_max = 1100
+        f0_max = 1400  # 고음역대 커버를 위해 상향 조정
         f0_mel_min = 1127 * np.log(1 + f0_min / 700)
         f0_mel_max = 1127 * np.log(1 + f0_max / 700)
 
         if f0_method not in ['rmvpe', 'fcpe']:
-             print(f"Warning: f0_method '{f0_method}' is not supported. Using 'rmvpe' instead.")
-             f0_method = 'rmvpe'
+            print(f"Warning: f0_method '{f0_method}' is not supported. Using 'rmvpe' instead.")
+            f0_method = 'rmvpe'
 
         if f0_method == "rmvpe":
-            if hasattr(self, "model_rmvpe") == False:
+            if not hasattr(self, "model_rmvpe"):
                 from rmvpe import RMVPE
-
                 self.model_rmvpe = RMVPE(
                     os.path.join(BASE_DIR, 'DIR', 'infers', 'rmvpe.pt'), is_half=self.is_half, device=self.device
                 )
-            f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
+            # 신뢰도 임계값(threshold)을 낮춰서 고음역대 소리를 놓치지 않도록 함
+            f0 = self.model_rmvpe.infer_from_audio(x, thred=0.015) 
         elif f0_method == "fcpe":
-             if hasattr(self, "model_fcpe") == False:
-                 from fcpe import FCPE
-
-                 self.model_fcpe = FCPE(
-                     os.path.join(BASE_DIR, 'DIR', 'infers', 'fcpe.pt'), device=self.device
-                 )
-             f0, uv = self.model_fcpe.compute_f0_uv(x, p_len=p_len)
+            if not hasattr(self, "model_fcpe"):
+                from fcpe import FCPE
+                self.model_fcpe = FCPE(
+                    os.path.join(BASE_DIR, 'DIR', 'infers', 'fcpe.pt'), device=self.device
+                )
+            f0, uv = self.model_fcpe.compute_f0_uv(x, p_len=p_len)
             
-             # Squeeze the tensor safely.
-             # If f0 has a batch dimension, select the first element.
-             if f0.ndim == 2 and f0.shape[0] > 1:
-                 f0 = f0[0]
-            
-             f0 = f0[0] if f0.ndim == 2 else f0
-             uv = uv[0] if uv.ndim == 2 else uv
+            if f0.ndim == 2 and f0.shape[0] > 1:
+                f0 = f0[0]
+            if uv.ndim == 2 and uv.shape[0] > 1:
+                uv = uv[0]
 
-             f0 = f0.cpu().numpy()
-             uv = uv.cpu().numpy()
+            f0 = f0.cpu().numpy()
+            uv = uv.cpu().numpy()
+        
+        # rmvpe와 fcpe에도 중앙값 필터(median filter) 적용
+        if filter_radius > 0 and (f0_method == "rmvpe" or f0_method == "fcpe"):
+            f0 = signal.medfilt(f0, filter_radius)
 
         f0 *= pow(2, f0_up_key / 12)
 
@@ -315,29 +315,20 @@ class VC(object):
                 :shape
             ]
 
+        # PyTorch 텐서를 NumPy 배열로 변환
         if isinstance(f0, torch.Tensor):
-            f0bak = f0.clone().detach().cpu().numpy() 
-            f0_mel = 1127 * torch.log(1 + f0 / 700)
-            
-            f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
-                f0_mel_max - f0_mel_min
-            ) + 1
-            f0_mel[f0_mel <= 1] = 1
-            f0_mel[f0_mel > 255] = 255
-            
-            f0_coarse = torch.round(f0_mel).int().cpu().numpy()
-        else:
-            f0bak = f0.copy()
-            f0_mel = 1127 * np.log(1 + f0 / 700)
-            
-            f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
-                f0_mel_max - f0_mel_min
-            ) + 1
-            f0_mel[f0_mel <= 1] = 1
-            f0_mel[f0_mel > 255] = 255
-            
-            f0_coarse = np.rint(f0_mel).astype(np.int)
+            f0 = f0.cpu().numpy()
 
+        f0bak = f0.copy()
+        f0_mel = 1127 * np.log(1 + f0 / 700)
+        
+        f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
+            f0_mel_max - f0_mel_min
+        ) + 1
+        f0_mel[f0_mel <= 1] = 1
+        f0_mel[f0_mel > 255] = 255
+        
+        f0_coarse = np.rint(f0_mel).astype(np.int)
 
         return f0_coarse, f0bak
 
@@ -467,22 +458,28 @@ class VC(object):
                 index = big_npy = None
         else:
             index = big_npy = None
-        audio = signal.filtfilt(bh, ah, audio)
-        audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
         
-        # 오디오 순서 문제 해결을 위한 분할 로직 수정
-        splits = np.arange(self.t_center, audio.shape[0], self.t_center)
-        if len(splits) == 0:
-            splits = [audio.shape[0]]
-
-        audio_splits = []
+        audio = signal.filtfilt(bh, ah, audio)
+        
+        # 💡 개선된 오디오 분할 로직: 일정하고 겹치는 청크 사용
+        audio_chunks = []
+        chunk_size = self.t_center
+        overlap_size = self.t_pad * 2
+        
         start = 0
-        for end in splits:
-            audio_splits.append(audio_pad[start : end + self.t_pad2 + self.window])
-            start = end
-        audio_splits.append(audio_pad[start:])
+        while start < audio.shape[0]:
+            end = start + chunk_size
+            if end > audio.shape[0]:
+                end = audio.shape[0]
+            
+            chunk = np.pad(audio[start:end], (self.t_pad, self.t_pad), mode="reflect")
+            audio_chunks.append(chunk)
+            
+            start += chunk_size - overlap_size 
+            if start < 0:
+                start = 0
 
-        # F0 계산을 한 번에 처리
+        # F0 계산 (전체 오디오에 대해 한 번에 계산)
         t1 = ttime()
         inp_f0 = None
         if hasattr(f0_file, "name") == True:
@@ -495,8 +492,13 @@ class VC(object):
                 inp_f0 = np.array(inp_f0, dtype="float32")
             except:
                 traceback.print_exc()
+        
         sid = torch.tensor(sid, device=self.device).unsqueeze(0).long()
         pitch, pitchf = None, None
+        
+        audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
+        p_len = audio_pad.shape[0] // self.window
+        
         if if_f0 == 1:
             pitch, pitchf = self.get_f0(
                 input_audio_path,
@@ -514,13 +516,15 @@ class VC(object):
                 pitchf = pitchf.astype(np.float32)
             pitch = torch.tensor(pitch, device=self.device).unsqueeze(0).long()
             pitchf = torch.tensor(pitchf, device=self.device).unsqueeze(0).float()
+            
         t2 = ttime()
         times[1] += t2 - t1
 
         audio_opt = []
         s_frame = 0
-        for i, audio_segment in enumerate(audio_splits):
-            seg_len_frame = (len(audio_segment) - self.t_pad2 - self.window) // self.window
+        for i, audio_segment in enumerate(audio_chunks):
+            seg_len_frame = (len(audio_segment) - self.t_pad2) // self.window
+            
             if if_f0 == 1:
                 audio_output = self.vc(
                     model,
@@ -536,7 +540,7 @@ class VC(object):
                     version,
                     protect,
                     seg_len_frame
-                )[self.t_pad_tgt : -self.t_pad_tgt]
+                )
             else:
                 audio_output = self.vc(
                     model,
@@ -552,11 +556,12 @@ class VC(object):
                     version,
                     protect,
                     seg_len_frame
-                )[self.t_pad_tgt : -self.t_pad_tgt]
+                )
             
-            audio_opt.append(audio_output)
-            s_frame += seg_len_frame
-            
+            trimmed_output = audio_output[self.t_pad_tgt:len(audio_output) - self.t_pad_tgt]
+            audio_opt.append(trimmed_output)
+            s_frame += seg_len_frame - (overlap_size // self.window)
+
         audio_opt = np.concatenate(audio_opt)
         
         if rms_mix_rate != 1:
@@ -570,7 +575,9 @@ class VC(object):
         if audio_max > 1:
             max_int16 /= audio_max
         audio_opt = (audio_opt * max_int16).astype(np.int16)
+        
         del pitch, pitchf, sid
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+            
         return audio_opt
