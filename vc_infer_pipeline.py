@@ -282,18 +282,53 @@ class VC(object):
                 )
             f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
         elif f0_method == "fcpe":
-             if hasattr(self, "model_fcpe") == False:
-                 from fcpe import FCPE
-
-                 self.model_fcpe = model = spawn_bundled_infer_model(device=self.device)
-             hop_size = 160
-             audio, sr = librosa.load(input_audio_path, sr=16000)
-             audio = librosa.to_mono(audio)
-             audio_length = len(audio)
-             f0_target_length = (audio_length // hop_size) + 1
-             audio = torch.from_numpy(audio).float().unsqueeze(0).unsqueeze(-1).to(self.device)
-             f0 = self.model_fcpe.infer(audio,sr = 16000, decoder_mode='local_argmax', threshold=0.006, f0_min=80, f0_max=880, interp_uv=False, output_interp_target_length=f0_target_length)
-             f0 = f0.detach().cpu().numpy()
+            if not hasattr(self, "model_fcpe"):
+                self.model_fcpe = spawn_bundled_infer_model(device=self.device)
+                if self.is_half:
+                    self.model_fcpe.half()
+                self.model_fcpe.eval()
+    
+            hop_size = 160
+            # 오디오를 GPU로 직접 보내지 않고, NumPy 배열 상태로 유지
+            audio = librosa.to_mono(x.astype(np.float32))
+            
+            chunk_size = 16000 * 5  # 5초 단위로 설정 (조정 가능)
+            all_f0 = []
+    
+            for i in range(0, len(audio), chunk_size):
+                chunk = audio[i:i + chunk_size]
+                
+                if len(chunk) < hop_size * 2: # 너무 짧은 청크는 제외
+                    continue
+                
+                audio_tensor = torch.from_numpy(chunk).float().unsqueeze(0).unsqueeze(-1).to(self.device)
+                
+                with torch.no_grad():
+                    f0_chunk = self.model_fcpe.infer(
+                        audio_tensor, 
+                        sr=16000, 
+                        decoder_mode='local_argmax', 
+                        threshold=0.006, 
+                        f0_min=80, 
+                        f0_max=880, 
+                        interp_uv=False, 
+                        output_interp_target_length=None
+                    )
+                
+                all_f0.append(f0_chunk.detach().cpu().numpy())
+                del audio_tensor, f0_chunk
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+    
+            f0 = np.concatenate(all_f0, axis=1).squeeze(0)
+    
+            f0_target_length = (len(audio) // hop_size) + 1
+            if len(f0) != f0_target_length:
+                f0 = np.interp(
+                    np.linspace(0, len(f0) - 1, f0_target_length),
+                    np.arange(len(f0)),
+                    f0
+                )
         f0 *= pow(2, f0_up_key / 12)
 
         tf0 = self.sr // self.window
