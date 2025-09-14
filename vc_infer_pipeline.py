@@ -284,9 +284,7 @@ class VC(object):
         elif f0_method == "fcpe":
             if not hasattr(self, "model_fcpe"):
                 self.model_fcpe = spawn_bundled_infer_model(device=self.device)
-                self.model_fcpe.eval()
-                if self.is_half:
-                    self.model_fcpe.half()
+                #self.model_fcpe.eval()
 
             hop_size = 160
             audio = librosa.to_mono(x.astype(np.float32))
