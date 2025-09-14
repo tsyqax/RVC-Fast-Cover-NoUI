@@ -164,6 +164,8 @@ def process_chunk(args):
         protect,
         crepe_hop_length,
         p_len,
+        pitch=pitch, # Pass pitch and pitchf explicitly
+        pitchf=pitchf
     )
 
 def worker_initializer(model_path, hubert_path, device, is_half):
@@ -362,6 +364,8 @@ def rvc_infer(
             version,
             protect,
             crepe_hop_length,
-            p_len
+            p_len,
+            pitch=None, # Pass pitch and pitchf explicitly
+            pitchf=None
         )
     wavfile.write(output_path, tgt_sr, audio_opt)
