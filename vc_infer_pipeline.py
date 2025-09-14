@@ -427,6 +427,8 @@ class VC(object):
         crepe_hop_length,
         p_len,
         f0_file=None,
+        pitch=None, # Pass pitch and pitchf explicitly
+        pitchf=None
     ):
         if (
             file_index != ""
