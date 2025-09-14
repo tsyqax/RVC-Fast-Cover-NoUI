@@ -425,7 +425,7 @@ class VC(object):
         version,
         protect,
         crepe_hop_length,
-        p_len, 
+        p_len,
         f0_file=None,
     ):
         if (
@@ -441,8 +441,10 @@ class VC(object):
                 index = big_npy = None
         else:
             index = big_npy = None
+    
         audio = signal.filtfilt(bh, ah, audio)
         audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
+    
         opt_ts = []
         if audio_pad.shape[0] > self.t_max:
             audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
@@ -470,14 +472,15 @@ class VC(object):
                 inp_f0 = np.array(inp_f0, dtype="float32")
             except:
                 traceback.print_exc()
+    
         sid = torch.tensor(sid, device=self.device).unsqueeze(0).long()
         pitch, pitchf = None, None
-        
-        # A 코드의 안정적인 피치 추론 로직을 그대로 사용
+    
+        # 피치 추론 로직 수정: audio_pad 대신 원본 audio를 사용
         if if_f0 == 1:
             pitch, pitchf = self.get_f0(
                 input_audio_path,
-                audio_pad,
+                audio,  # <--- 이 부분을 audio로 변경
                 p_len,
                 f0_up_key,
                 f0_method,
@@ -494,8 +497,8 @@ class VC(object):
         
         t2 = ttime()
         times[1] += t2 - t1
-        
-        # B 코드의 오디오 분할 및 병합 로직 적용
+    
+        # B 코드의 오디오 분할 및 병합 로직 그대로 유지
         for t in opt_ts:
             t = t // self.window * self.window
             audio_chunk = np.ascontiguousarray(audio[s:t])
