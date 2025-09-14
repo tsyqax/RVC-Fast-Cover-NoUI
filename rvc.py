@@ -126,16 +126,16 @@ def process_chunk(args):
         crepe_hop_length,
     ) = args
     
-    # Calculate p_len for the current chunk
     p_len = len(audio_chunk) // vc_global.window
     
-    # Initialize pitch and pitchf within the worker's scope
     pitch = None
     pitchf = None
-        
+    
     if if_f0 == 1:
+        # The worker itself calculates pitch and pitchf for its chunk
+        # It's crucial that audio_chunk here is a NumPy array
         pitch, pitchf = vc_global.get_f0(
-            None, # pass None for the input path to use the audio_chunk
+            None,
             audio_chunk,
             p_len,
             pitch_change,
@@ -144,20 +144,16 @@ def process_chunk(args):
             crepe_hop_length,
             None
         )
-        if pitch is not None and pitchf is not None:
-            # Check if pitch is already a Tensor before converting
-            if not isinstance(pitch, torch.Tensor):
-                pitch = torch.from_numpy(pitch).to(vc_global.device)
-            # Check if pitchf is already a Tensor before converting
-            if not isinstance(pitchf, torch.Tensor):
-                pitchf = torch.from_numpy(pitchf).to(vc_global.device)
-                
-            if vc_global.is_half:
+        if isinstance(pitch, np.ndarray):
+            pitch = torch.from_numpy(pitch).to(vc_global.device)
+        if isinstance(pitchf, np.ndarray):
+            pitchf = torch.from_numpy(pitchf).to(vc_global.device)
+        if vc_global.is_half:
+            if isinstance(pitch, torch.Tensor):
                 pitch = pitch.half()
+            if isinstance(pitchf, torch.Tensor):
                 pitchf = pitchf.half()
-                
-    pitch = torch.from_numpy(pitch).to(vc_global.device)
-    pitchf = torch.from_numpy(pitchf).to(vc_global.device)    
+
     return vc_global.pipeline(
         hubert_model_global,
         net_g_global,
@@ -178,7 +174,7 @@ def process_chunk(args):
         protect,
         crepe_hop_length,
         p_len,
-        pitch=pitch, # Pass pitch and pitchf explicitly
+        pitch=pitch,
         pitchf=pitchf
     )
 
@@ -309,40 +305,12 @@ def rvc_infer(
         if len(audio) % num_workers != 0:
             chunks[-1] = np.concatenate((chunks[-1], audio[num_workers * chunk_length:]))
 
-        audio_pad = np.pad(audio, (vc.t_pad, vc.t_pad), mode="reflect")
-        p_len = (len(audio_pad)) // vc.window
-        if if_f0 == 1:
-            pitch, pitchf = vc.get_f0(
-                input_path,
-                audio_pad,
-                p_len,
-                pitch_change,
-                f0_method,
-                filter_radius,
-                crepe_hop_length,
-                None
-            )
-            # Add a new axis to convert the 1D array to a 2D array with one row
-            pitch = pitch[np.newaxis, :]
-            pitchf = pitchf[np.newaxis, :]
-
-
-        chunk_length = len(audio) // num_workers
-        chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_workers)]
-        if len(audio) % num_workers != 0:
-            chunks[-1] = np.concatenate((chunks[-1], audio[num_workers * chunk_length:]))
-
         args_list = []
         for i, chunk in enumerate(chunks):
-            # Check if the chunk is a PyTorch Tensor
-            if isinstance(chunk, torch.Tensor):
-                # Convert the Tensor to a NumPy array
-                chunk_np = chunk.cpu().numpy()
-            else:
-                chunk_np = chunk
-
-            chunk_pad = np.pad(chunk_np, (vc.t_pad, vc.t_pad), mode="reflect")
+            # Pad the chunk BEFORE passing it to the worker
+            chunk_pad = np.pad(chunk, (vc.t_pad, vc.t_pad), mode="reflect")
             
+            # The worker needs the padded chunk, and other parameters
             args_list.append(
                 (
                     chunk_pad,
