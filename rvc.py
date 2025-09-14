@@ -301,6 +301,16 @@ def rvc_infer(
             print(f"Could not determine VRAM. Falling back to CPU count. Error: {e}")
             num_workers = cpu_count()
             
+        if isinstance(audio, torch.Tensor):
+            audio = audio.cpu().numpy()
+
+        chunk_length = len(audio) // num_workers
+        chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_workers)]
+        if len(audio) % num_workers != 0:
+            chunks[-1] = np.concatenate((chunks[-1], audio[num_workers * chunk_length:]))
+
+        args_list = []
+        for i, chunk in enumerate(chunks):
         audio_pad = np.pad(audio, (vc.t_pad, vc.t_pad), mode="reflect")
         p_len = (len(audio_pad)) // vc.window
         if if_f0 == 1:
@@ -333,7 +343,7 @@ def rvc_infer(
             else:
                 chunk_np = chunk
 
-            chunk_pad = np.pad(chunk_np, (vc.t_pad, vc.t_pad), mode="reflect")
+            #chunk_pad = np.pad(chunk_np, (vc.t_pad, vc.t_pad), mode="reflect")
             
             args_list.append(
                 (
