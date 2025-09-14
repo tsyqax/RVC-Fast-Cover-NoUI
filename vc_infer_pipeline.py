@@ -441,15 +441,14 @@ class VC(object):
                 index = big_npy = None
         else:
             index = big_npy = None
-    
-        audio = signal.filtfilt(bh, ah, audio)
         
-        # 패딩 로직 제거
+        # 패딩 제거
+        # audio = signal.filtfilt(bh, ah, audio) # bh, ah가 정의되지 않아 주석처리
         # audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
-    
+        audio_pad = audio # 패딩을 제거하기 위해 원본 audio 사용
+        
         opt_ts = []
-        # 패딩 없이 원본 오디오를 기준으로 분할 지점 찾기
-        if audio.shape[0] > self.t_max:
+        if audio_pad.shape[0] > self.t_max:
             audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
             for t in range(self.t_center, audio.shape[0], self.t_center):
                 audio_sum_idx = max(0, t - self.window // 2)
@@ -475,14 +474,13 @@ class VC(object):
                 inp_f0 = np.array(inp_f0, dtype="float32")
             except:
                 traceback.print_exc()
+        
         sid = torch.tensor(sid, device=self.device).unsqueeze(0).long()
         pitch, pitchf = None, None
-    
         if if_f0 == 1:
-            # A 코드의 피치 추론 로직을 가져오되, 오디오 데이터는 패딩 없는 원본을 사용
             pitch, pitchf = self.get_f0(
                 input_audio_path,
-                audio, # audio_pad 대신 원본 audio를 사용
+                audio_pad,
                 p_len,
                 f0_up_key,
                 f0_method,
@@ -500,12 +498,14 @@ class VC(object):
         t2 = ttime()
         times[1] += t2 - t1
         
-        # B 코드의 오디오 분할/병합 로직을 그대로 사용 (패딩 없음)
         for t in opt_ts:
             t = t // self.window * self.window
+            
+            # B 코드의 개선된 오디오 분할 방식 적용
             audio_chunk = np.ascontiguousarray(audio[s:t])
             
             if if_f0 == 1:
+                # B 코드의 개선된 피치 청크 슬라이싱 적용
                 pitch_chunk = pitch[:, s // self.window : t // self.window]
                 pitchf_chunk = pitchf[:, s // self.window : t // self.window]
                 
@@ -522,7 +522,7 @@ class VC(object):
                     index_rate,
                     version,
                     protect,
-                    len(pitch_chunk.squeeze())
+                    len(audio_chunk) // self.window # B 코드의 문제 해결
                 )
             else:
                 processed_audio = self.vc(
@@ -540,9 +540,11 @@ class VC(object):
                     protect,
                     len(audio_chunk) // self.window
                 )
+            
             audio_opt.append(processed_audio)
             s = t
             
+        # 마지막 조각 처리
         audio_chunk_last = np.ascontiguousarray(audio[s:])
         if if_f0 == 1:
             pitch_chunk_last = pitch[:, s // self.window:]
@@ -560,7 +562,7 @@ class VC(object):
                 index_rate,
                 version,
                 protect,
-                len(pitch_chunk_last.squeeze())
+                len(audio_chunk_last) // self.window
             )
         else:
             processed_audio_last = self.vc(
@@ -578,21 +580,28 @@ class VC(object):
                 protect,
                 len(audio_chunk_last) // self.window
             )
+            
         audio_opt.append(processed_audio_last)
-    
+        
         audio_opt = np.concatenate(audio_opt)
+        
         if rms_mix_rate != 1:
             audio_opt = change_rms(audio, 16000, audio_opt, tgt_sr, rms_mix_rate)
+        
         if resample_sr >= 16000 and tgt_sr != resample_sr:
             audio_opt = librosa.resample(
                 audio_opt, orig_sr=tgt_sr, target_sr=resample_sr
             )
+        
         audio_max = np.abs(audio_opt).max() / 0.99
         max_int16 = 32768
         if audio_max > 1:
             max_int16 /= audio_max
+        
         audio_opt = (audio_opt * max_int16).astype(np.int16)
+        
         del pitch, pitchf, sid
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        
         return audio_opt
