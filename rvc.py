@@ -112,62 +112,71 @@ class Config:
 
 
 def process_chunk(args):
-    (
-        combined_chunk,
-        input_path,
-        times,
-        pitch_change,
-        f0_method,
-        index_rate,
-        if_f0,
-        filter_radius,
-        tgt_sr,
-        rms_mix_rate,
-        version,
-        protect,
-        crepe_hop_length,
-        p_len,
-        f0_file,
-    ) = args
-
-    # First, calculate pitch for the combined chunk
-    audio_pad = np.pad(combined_chunk, (vc_global.t_pad, vc_global.t_pad), mode="reflect")
-    pitch, pitchf = None, None
-    if if_f0 == 1:
-        pitch, pitchf = vc_global.get_f0(
+    try:
+        (
+            combined_chunk,
             input_path,
-            audio_pad,
-            p_len,
+            times,
             pitch_change,
             f0_method,
+            index_rate,
+            if_f0,
             filter_radius,
+            tgt_sr,
+            rms_mix_rate,
+            version,
+            protect,
             crepe_hop_length,
-            f0_file
+            p_len,
+            f0_file,
+        ) = args
+
+        audio_pad = np.pad(combined_chunk, (vc_global.t_pad, vc_global.t_pad), mode="reflect")
+        pitch, pitchf = None, None
+        
+        if if_f0 == 1:
+            pitch, pitchf = vc_global.get_f0(
+                input_path,
+                audio_pad,
+                p_len,
+                pitch_change,
+                f0_method,
+                filter_radius,
+                crepe_hop_length,
+                f0_file
+            )
+
+            # 💡 Check if pitch extraction was successful before continuing
+            if not isinstance(pitch, np.ndarray) or pitch.size == 0:
+                print(f"[{current_process().name}] Warning: Pitch extraction failed for a chunk. Skipping this chunk.")
+                return np.array([])
+            
+            p_len = min(p_len, pitch.shape[0])
+            pitch = pitch[:p_len]
+            pitchf = pitchf[:p_len]
+        else:
+            pitch = None
+            pitchf = None
+
+        return vc_global.vc(
+            hubert_model_global,
+            net_g_global,
+            0, # Assuming sid is 0, adjust if needed
+            combined_chunk,
+            pitch,
+            pitchf,
+            times,
+            index_global,
+            big_npy_global,
+            index_rate,
+            version,
+            protect,
+            p_len,
         )
-        if pitch is None or pitchf is None or len(pitch) == 0:
-            print("Warning: Pitch extraction failed for a chunk. Skipping this chunk.")
-            return np.array([])  # Return an empty array to be handled later
-
-        pitch = pitch[:p_len]
-        pitchf = pitchf[:p_len]
-
-    # Now, call the simplified vc.vc method to process the chunk.
-    # The vc.vc method doesn't try to split the audio again.
-    return vc_global.vc(
-        hubert_model_global,
-        net_g_global,
-        0, # Assuming sid is 0, adjust if needed
-        combined_chunk,
-        pitch,
-        pitchf,
-        times,
-        index_global,
-        big_npy_global,
-        index_rate,
-        version,
-        protect,
-        p_len,
-    )
+    except Exception as e:
+        print(f"[{current_process().name}] Error in process_chunk: {e}")
+        traceback.print_exc()
+        return np.array([])
 
 def worker_initializer(model_path, hubert_path, device, is_half, index_path):
     global hubert_model_global, net_g_global, cpt_global, vc_global, version_global, config_global, index_global, big_npy_global
@@ -329,9 +338,14 @@ def rvc_infer(
         with Pool(processes=num_workers, initializer=worker_initializer, initargs=(rvc_model_path, hubert_model_path, "cuda:0", True, index_path)) as p:
             processed_chunks = p.map(process_chunk, args_list)
         
-        # Filter out empty arrays before concatenation
+        # Filter out empty arrays returned by failed chunks
         processed_chunks = [chunk for chunk in processed_chunks if chunk.size > 0]
-        audio_opt = np.concatenate(processed_chunks)
+        
+        if len(processed_chunks) > 0:
+            audio_opt = np.concatenate(processed_chunks)
+        else:
+            print("All audio chunks failed to process. Returning original audio.")
+            audio_opt = audio
 
     else:
         print("Audio is short or CUDA is not available. Processing serially.")
