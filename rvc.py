@@ -106,10 +106,9 @@ class Config:
         return x_pad, x_query, x_center, x_max
 
 
-# 💡 `process_chunk` 함수를 수정하여 필요한 인자만 받도록 변경
 def process_chunk(args):
     (
-        audio_chunk,
+        combined_chunk,
         input_path,
         times,
         pitch_change,
@@ -123,31 +122,43 @@ def process_chunk(args):
         version,
         protect,
         crepe_hop_length,
-        p_len,
+        p_len, # This is the p_len for the combined chunk
         f0_file,
     ) = args
-    
-    return vc_global.pipeline(
+
+    # First, calculate pitch for the combined chunk
+    audio_pad = np.pad(combined_chunk, (vc_global.t_pad, vc_global.t_pad), mode="reflect")
+    pitch, pitchf = None, None
+    if if_f0 == 1:
+        pitch, pitchf = vc_global.get_f0(
+            input_path,
+            audio_pad,
+            p_len,
+            pitch_change,
+            f0_method,
+            filter_radius,
+            crepe_hop_length,
+            f0_file
+        )
+        pitch = pitch[:p_len]
+        pitchf = pitchf[:p_len]
+
+    # Now, call the simplified vc.vc method to process the chunk.
+    # The vc.vc method doesn't try to split the audio again.
+    return vc_global.vc(
         hubert_model_global,
         net_g_global,
-        0, # sid
-        audio_chunk,
-        input_path,
+        0, # Assuming sid is 0, adjust if needed
+        combined_chunk,
+        pitch,
+        pitchf,
         times,
-        pitch_change,
-        f0_method,
-        index_path,
+        None, # Pass index/npy if needed, but it's often handled differently in parallel.
+        None,
         index_rate,
-        if_f0,
-        filter_radius,
-        tgt_sr,
-        0, # resample_sr
-        rms_mix_rate,
         version,
         protect,
-        crepe_hop_length,
         p_len,
-        f0_file,
     )
 
 def worker_initializer(model_path, hubert_path, device, is_half):
