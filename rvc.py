@@ -235,8 +235,9 @@ def rvc_infer(
     if f0_method not in ['rmvpe', 'fcpe']:
         print("Warning: f0 method is not supported. Using 'rmvpe'.")
         f0_method = 'rmvpe'
-
+    
     audio = load_audio(input_path, 16000)
+    audio_chunks = vc.pipeline_get_audio_chunks(audio)
     times = [0, 0, 0]
     if_f0 = cpt.get('f0', 1)
 
