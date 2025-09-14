@@ -234,8 +234,10 @@ def rvc_infer(
     if f0_method not in ['rmvpe', 'fcpe']:
         print("Warning: f0 method is not supported. Using 'rmvpe'.")
         f0_method = 'rmvpe'
+    
     pitch = None
     pitchf = None
+    
     audio = load_audio(input_path, 16000)
     times = [0, 0, 0]
     if_f0 = cpt.get('f0', 1)
@@ -244,71 +246,96 @@ def rvc_infer(
         print("Audio is longer than 1 minute and CUDA is available. Determining optimal worker count...")
         
         try:
-            # Check if models are on GPU
             if hubert_model.parameters():
                 device = next(hubert_model.parameters()).device
             elif net_g.parameters():
                 device = next(net_g.parameters()).device
             else:
                 device = torch.device('cuda:0')
-                
             prop = torch.cuda.get_device_properties(device)
-            total_vram = prop.total_memory / 1024 / 1024 # MB
-            
-            # Estimate VRAM usage of one model instance (HuBERT + RVC)
+            total_vram = prop.total_memory / 1024 / 1024
             model_size_mb = 0
             for param in hubert_model.parameters():
                 model_size_mb += param.numel() * param.element_size() / 1024 / 1024
             for param in net_g.parameters():
                 model_size_mb += param.numel() * param.element_size() / 1024 / 1024
-            
-            # Use a safe buffer for VRAM
-            vram_buffer_mb = 512 # 512MB
-            
-            # Calculate max workers
+            vram_buffer_mb = 512
             num_workers = int((total_vram - vram_buffer_mb) / model_size_mb)
-            num_workers = max(1, num_workers) # At least 1 worker
-            num_workers = min(num_workers, cpu_count()) # Don't exceed CPU cores
-            
+            num_workers = max(1, num_workers)
+            num_workers = min(num_workers, cpu_count())
             print(f"Optimal number of workers: {num_workers} (Total VRAM: {total_vram:.2f}MB, Estimated Model size: {model_size_mb:.2f}MB)")
         except Exception as e:
             print(f"Could not determine VRAM. Falling back to CPU count. Error: {e}")
             num_workers = cpu_count()
+            
+        audio_pad = np.pad(audio, (vc.t_pad, vc.t_pad), mode="reflect")
+        p_len = (len(audio_pad)) // vc.window
+        if if_f0 == 1:
+            pitch, pitchf = vc.get_f0(
+                input_path,
+                audio_pad,
+                p_len,
+                pitch_change,
+                f0_method,
+                filter_radius,
+                crepe_hop_length,
+                None
+            )
 
         chunk_length = len(audio) // num_workers
         chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_workers)]
         if len(audio) % num_workers != 0:
             chunks[-1] = np.concatenate((chunks[-1], audio[num_workers * chunk_length:]))
 
-        args_list = [
-            (
-                chunk,
-                input_path,
-                times,
-                pitch_change,
-                f0_method,
-                index_path,
-                index_rate,
-                if_f0,
-                filter_radius,
-                tgt_sr,
-                rms_mix_rate,
-                version,
-                protect,
-                crepe_hop_length,
-                chunk.shape[0] // vc.window, # 패딩되지 않은 오디오의 p_len 계산
+        args_list = []
+        current_pos = 0
+        for i, chunk in enumerate(chunks):
+            start_frame = current_pos // vc.window
+            end_frame = (current_pos + len(chunk)) // vc.window
+            
+            chunk_pad = np.pad(chunk, (vc.t_pad, vc.t_pad), mode="reflect")
+            
+            if if_f0 == 1:
+                chunk_pitch = pitch[:, start_frame:end_frame]
+                chunk_pitchf = pitchf[:, start_frame:end_frame]
+            else:
+                chunk_pitch = None
+                chunk_pitchf = None
+                
+            args_list.append(
+                (
+                    chunk_pad,
+                    input_path,
+                    times,
+                    pitch_change,
+                    f0_method,
+                    index_path,
+                    index_rate,
+                    if_f0,
+                    filter_radius,
+                    tgt_sr,
+                    rms_mix_rate,
+                    version,
+                    protect,
+                    crepe_hop_length,
+                    len(chunk_pad) // vc.window,
+                    chunk_pitch,
+                    chunk_pitchf
+                )
             )
-            for chunk in chunks
-        ]
+            current_pos += len(chunk)
 
         with Pool(processes=num_workers, initializer=worker_initializer, initargs=(rvc_model_path, hubert_model_path, "cuda:0", True)) as p:
             processed_chunks = p.map(process_chunk, args_list)
         
-        audio_opt = np.concatenate(processed_chunks)
+        audio_opt_parts = []
+        for i in range(len(processed_chunks)):
+            audio_opt_parts.append(processed_chunks[i][vc.t_pad_tgt : -vc.t_pad_tgt])
+        audio_opt = np.concatenate(audio_opt_parts)
 
     else:
         print("Audio is short or CUDA is not available. Processing serially.")
-        p_len = audio.shape[0] // vc.window # 패딩되지 않은 오디오의 p_len 계산
+        p_len = audio.shape[0] // vc.window
         
         audio_opt = vc.pipeline(
             hubert_model,
