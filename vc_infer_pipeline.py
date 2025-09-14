@@ -79,9 +79,7 @@ class VC(object):
         self.t_max = self.sr * self.x_max
         self.device = config.device
 
-    # Fork Feature: Get the best torch device to use for f0 algorithms that require a torch device. Will return the type (torch.device)
     def get_optimal_torch_device(self, index: int = 0) -> torch.device:
-        # Get cuda device
         if torch.cuda.is_available():
             return torch.device(
                 f"cuda:{index % torch.cuda.device_count()}"
@@ -90,7 +88,6 @@ class VC(object):
             return torch.device("mps")
         return torch.device("cpu")
 
-    # Fork Feature: Compute f0 with the crepe method
     def get_f0_crepe_computation(
         self,
         x,
@@ -159,14 +156,12 @@ class VC(object):
         f0 = f0[0].cpu().numpy()
         return f0
 
-    # Fork Feature: Compute pYIN f0 method
     def get_f0_pyin_computation(self, x, f0_min, f0_max):
         y, sr = librosa.load("saudio/Sidney.wav", self.sr, mono=True)
         f0, _, _ = librosa.pyin(y, sr=self.sr, fmin=f0_min, fmax=f0_max)
         f0 = f0[1:]
         return f0
 
-    # Fork Feature: Acquire median hybrid f0 estimation calculation
     def get_f0_hybrid_computation(
         self,
         methods_str,
@@ -287,17 +282,26 @@ class VC(object):
                 )
             f0, uv = self.model_fcpe.compute_f0_uv(x, p_len=p_len)
             
+            # 💡 uv(unvoiced) 값을 사용하여 신뢰도 낮은 F0 제거
+            f0[uv < 0.5] = 0
+            
             if f0.ndim == 2 and f0.shape[0] > 1:
                 f0 = f0[0]
             if uv.ndim == 2 and uv.shape[0] > 1:
                 uv = uv[0]
-                
-        # Apply a median filter if needed
+
+        # 💡 중앙값 필터 적용 (rmvpe와 fcpe 모두에 적용)
         if filter_radius > 0 and (f0_method == "rmvpe" or f0_method == "fcpe"):
+            # f0가 torch.Tensor일 경우 numpy로 변환 후 필터 적용
+            if isinstance(f0, torch.Tensor):
+                f0 = f0.cpu().numpy()
             f0 = signal.medfilt(f0, filter_radius)
-    
+            # 다시 tensor로 변환
+            if not isinstance(f0, torch.Tensor) and self.device != "cpu":
+                f0 = torch.tensor(f0).to(self.device)
+
         f0 *= pow(2, f0_up_key / 12)
-    
+
         tf0 = self.sr // self.window
         if inp_f0 is not None:
             delta_t = np.round(
@@ -310,8 +314,7 @@ class VC(object):
             f0[self.x_pad * tf0 : self.x_pad * tf0 + len(replace_f0)] = replace_f0[
                 :shape
             ]
-    
-        # 💡 CORRECTED LOGIC: Perform the conversion only once at the end.
+
         if isinstance(f0, torch.Tensor):
             f0bak = f0.clone().detach().cpu().numpy()
             f0_mel = 1127 * torch.log(1 + f0 / 700)
@@ -330,7 +333,7 @@ class VC(object):
             f0_mel[f0_mel <= 1] = 1
             f0_mel[f0_mel > 255] = 255
             f0_coarse = np.rint(f0_mel).astype(np.int)
-    
+
         return f0_coarse, f0bak
 
     def vc(
@@ -422,7 +425,6 @@ class VC(object):
         times[2] += t2 - t1
         return audio1
 
-    
     def pipeline(
         self,
         model,
@@ -462,7 +464,6 @@ class VC(object):
         
         audio = signal.filtfilt(bh, ah, audio)
         
-        # 💡 개선된 오디오 분할 로직: 일정하고 겹치는 청크 사용
         audio_chunks = []
         chunk_size = self.t_center
         overlap_size = self.t_pad * 2
@@ -480,7 +481,6 @@ class VC(object):
             if start < 0:
                 start = 0
 
-        # F0 계산 (전체 오디오에 대해 한 번에 계산)
         t1 = ttime()
         inp_f0 = None
         if hasattr(f0_file, "name") == True:
@@ -561,7 +561,8 @@ class VC(object):
             
             trimmed_output = audio_output[self.t_pad_tgt:len(audio_output) - self.t_pad_tgt]
             audio_opt.append(trimmed_output)
-            s_frame += seg_len_frame - (overlap_size // self.window)
+            
+            s_frame += seg_len_frame - (self.t_pad * 2 // self.window)
 
         audio_opt = np.concatenate(audio_opt)
         
