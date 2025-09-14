@@ -370,7 +370,7 @@ class VC(object):
         assert feats.dim() == 1, feats.dim()
         feats = feats.view(1, -1)
         padding_mask = torch.BoolTensor(feats.shape).to(self.device).fill_(False)
-
+    
         inputs = {
             "source": feats.to(self.device),
             "padding_mask": padding_mask,
@@ -380,7 +380,7 @@ class VC(object):
         with torch.no_grad():
             logits = model.extract_features(**inputs)
             feats = model.final_proj(logits[0]) if version == "v1" else logits[0]
-
+    
         if protect < 0.5 and pitch is not None and pitchf is not None and pitch.any():
             feats0 = feats.clone()
         
@@ -392,30 +392,30 @@ class VC(object):
             npy = feats[0].cpu().numpy()
             if self.is_half:
                 npy = npy.astype("float32")
-
+    
             score, ix = index.search(npy, k=8)
             weight = np.square(1 / score)
             weight /= weight.sum(axis=1, keepdims=True)
             npy = np.sum(big_npy[ix] * np.expand_dims(weight, axis=2), axis=1)
-
+    
             if self.is_half:
                 npy = npy.astype("float16")
             feats = (
                 torch.from_numpy(npy).unsqueeze(0).to(self.device) * index_rate
                 + (1 - index_rate) * feats
             )
-
+    
         feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
-
-        # 💡 feats의 길이와 pitch, pitchf의 길이를 일치시키기 위한 보간(interpolation) 추가
+    
+        # 💡 The fix is here: explicitly cast to float() before interpolation
         if pitch is not None and pitchf is not None and pitch.any():
-            pitch = torch.from_numpy(pitch).unsqueeze(0).unsqueeze(0).to(self.device)
-            pitchf = torch.from_numpy(pitchf).unsqueeze(0).unsqueeze(0).to(self.device)
+            pitch = torch.from_numpy(pitch).unsqueeze(0).unsqueeze(0).to(self.device).float()  # <-- ADDED .float()
+            pitchf = torch.from_numpy(pitchf).unsqueeze(0).unsqueeze(0).to(self.device).float() # <-- ADDED .float()
             pitch = F.interpolate(pitch, size=feats.shape[1], mode="linear")
             pitchf = F.interpolate(pitchf, size=feats.shape[1], mode="linear")
             pitch = pitch.squeeze(0).squeeze(0).long()
             pitchf = pitchf.squeeze(0).squeeze(0).float()
-            
+        
         if protect < 0.5 and pitch is not None and pitchf is not None and pitch.any():
             feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(
                 0, 2, 1
@@ -427,7 +427,7 @@ class VC(object):
         times[2] += t2 - t1
         with torch.no_grad():
             p_len_tensor = torch.LongTensor([p_len]).to(self.device)
-            
+        
             if pitch is not None and pitchf is not None and pitch.any():
                 audio1 = (
                     (net_g.infer(feats, p_len_tensor, pitch, pitchf, sid)[0][0, 0])
