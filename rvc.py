@@ -146,7 +146,7 @@ def process_chunk(args):
                 f0_file
             )
 
-            # 💡 Check if pitch extraction was successful before continuing
+            # 💡 Critical check: Ensure pitch is a valid non-empty array
             if not isinstance(pitch, np.ndarray) or pitch.size == 0:
                 print(f"[{current_process().name}] Warning: Pitch extraction failed for a chunk. Skipping this chunk.")
                 return np.array([])
