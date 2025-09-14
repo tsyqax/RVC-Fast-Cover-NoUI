@@ -145,8 +145,13 @@ def process_chunk(args):
             None
         )
         if pitch is not None and pitchf is not None:
-            pitch = torch.from_numpy(pitch).to(vc_global.device)
-            pitchf = torch.from_numpy(pitchf).to(vc_global.device)
+            # Check if pitch is already a Tensor before converting
+            if not isinstance(pitch, torch.Tensor):
+                pitch = torch.from_numpy(pitch).to(vc_global.device)
+            # Check if pitchf is already a Tensor before converting
+            if not isinstance(pitchf, torch.Tensor):
+                pitchf = torch.from_numpy(pitchf).to(vc_global.device)
+                
             if vc_global.is_half:
                 pitch = pitch.half()
                 pitchf = pitchf.half()
