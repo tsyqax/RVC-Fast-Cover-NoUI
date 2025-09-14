@@ -443,10 +443,13 @@ class VC(object):
             index = big_npy = None
     
         audio = signal.filtfilt(bh, ah, audio)
-        audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
+        
+        # 패딩 로직 제거
+        # audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
     
         opt_ts = []
-        if audio_pad.shape[0] > self.t_max:
+        # 패딩 없이 원본 오디오를 기준으로 분할 지점 찾기
+        if audio.shape[0] > self.t_max:
             audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
             for t in range(self.t_center, audio.shape[0], self.t_center):
                 audio_sum_idx = max(0, t - self.window // 2)
@@ -472,15 +475,14 @@ class VC(object):
                 inp_f0 = np.array(inp_f0, dtype="float32")
             except:
                 traceback.print_exc()
-    
         sid = torch.tensor(sid, device=self.device).unsqueeze(0).long()
         pitch, pitchf = None, None
     
-        # 피치 추론 로직 수정: audio_pad 대신 원본 audio를 사용
         if if_f0 == 1:
+            # A 코드의 피치 추론 로직을 가져오되, 오디오 데이터는 패딩 없는 원본을 사용
             pitch, pitchf = self.get_f0(
                 input_audio_path,
-                audio,  # <--- 이 부분을 audio로 변경
+                audio, # audio_pad 대신 원본 audio를 사용
                 p_len,
                 f0_up_key,
                 f0_method,
@@ -497,8 +499,8 @@ class VC(object):
         
         t2 = ttime()
         times[1] += t2 - t1
-    
-        # B 코드의 오디오 분할 및 병합 로직 그대로 유지
+        
+        # B 코드의 오디오 분할/병합 로직을 그대로 사용 (패딩 없음)
         for t in opt_ts:
             t = t // self.window * self.window
             audio_chunk = np.ascontiguousarray(audio[s:t])
