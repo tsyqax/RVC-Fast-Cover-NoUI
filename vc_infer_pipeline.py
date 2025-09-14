@@ -88,6 +88,24 @@ class VC(object):
             return torch.device("mps")
         return torch.device("cpu")
 
+    def pipeline_get_audio_chunks(self, audio):
+        audio_chunks = []
+        chunk_size = self.t_center
+        overlap_size = self.t_pad * 2
+        
+        start = 0
+        while start < audio.shape[0]:
+            end = start + chunk_size
+            if end > audio.shape[0]:
+                end = audio.shape[0]
+            
+            chunk = np.pad(audio[start:end], (self.t_pad, self.t_pad), mode="reflect")
+            audio_chunks.append(chunk)
+            
+            start += chunk_size - overlap_size 
+            if start < 0:
+                start = 0
+        return audio_chunks
     def get_f0_crepe_computation(
         self,
         x,
