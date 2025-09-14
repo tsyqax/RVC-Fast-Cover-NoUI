@@ -146,8 +146,13 @@ def process_chunk(args):
         )
         if isinstance(pitch, np.ndarray):
             pitch = torch.from_numpy(pitch).to(vc_global.device)
+            # 🟢 Explicitly add a dimension to the tensor
+            pitch = pitch.unsqueeze(0)
+
         if isinstance(pitchf, np.ndarray):
             pitchf = torch.from_numpy(pitchf).to(vc_global.device)
+            # 🟢 Explicitly add a dimension to the tensor
+            pitchf = pitchf.unsqueeze(0)
         if vc_global.is_half:
             if isinstance(pitch, torch.Tensor):
                 pitch = pitch.half()
