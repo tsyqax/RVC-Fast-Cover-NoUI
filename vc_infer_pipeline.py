@@ -405,57 +405,57 @@ class VC(object):
         times[2] += t2 - t1
         return audio1
 
-def pipeline(
-    self,
-    model,
-    net_g,
-    sid,
-    audio,
-    input_audio_path,
-    times,
-    f0_up_key,
-    f0_method,
-    file_index,
-    index_rate,
-    if_f0,
-    filter_radius,
-    tgt_sr,
-    resample_sr,
-    rms_mix_rate,
-    version,
-    protect,
-    crepe_hop_length,
-    p_len, 
-    f0_file=None,
-):
-    if (
-        file_index != ""
-        and os.path.exists(file_index) == True
-        and index_rate != 0
+    def pipeline(
+        self,
+        model,
+        net_g,
+        sid,
+        audio,
+        input_audio_path,
+        times,
+        f0_up_key,
+        f0_method,
+        file_index,
+        index_rate,
+        if_f0,
+        filter_radius,
+        tgt_sr,
+        resample_sr,
+        rms_mix_rate,
+        version,
+        protect,
+        crepe_hop_length,
+        p_len, 
+        f0_file=None,
     ):
-        try:
-            index = faiss.read_index(file_index)
-            big_npy = index.reconstruct_n(0, index.ntotal)
-        except:
-            traceback.print_exc()
+        if (
+            file_index != ""
+            and os.path.exists(file_index) == True
+            and index_rate != 0
+        ):
+            try:
+                index = faiss.read_index(file_index)
+                big_npy = index.reconstruct_n(0, index.ntotal)
+            except:
+                traceback.print_exc()
+                index = big_npy = None
+        else:
             index = big_npy = None
-    else:
-        index = big_npy = None
-    audio = signal.filtfilt(bh, ah, audio)
-    audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
-    opt_ts = []
-    if audio_pad.shape[0] > self.t_max:
-        audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
-        for t in range(self.t_center, audio.shape[0], self.t_center):
-            audio_sum_idx = max(0, t - self.window // 2)
-            local_sum = audio_sum[audio_sum_idx - self.t_query // 2 : audio_sum_idx + self.t_query // 2]
-            if local_sum.size == 0:
-                continue
-            min_index_local = np.argmin(local_sum)
-            split_point = (audio_sum_idx - self.t_query // 2) + min_index_local
-            opt_ts.append(split_point)
-
-    s = 0
+        audio = signal.filtfilt(bh, ah, audio)
+        audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
+        opt_ts = []
+        if audio_pad.shape[0] > self.t_max:
+            audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
+            for t in range(self.t_center, audio.shape[0], self.t_center):
+                audio_sum_idx = max(0, t - self.window // 2)
+                local_sum = audio_sum[audio_sum_idx - self.t_query // 2 : audio_sum_idx + self.t_query // 2]
+                if local_sum.size == 0:
+                    continue
+                min_index_local = np.argmin(local_sum)
+                split_point = (audio_sum_idx - self.t_query // 2) + min_index_local
+                opt_ts.append(split_point)
+    
+        s = 0
         audio_opt = []
         t = None
         t1 = ttime()
