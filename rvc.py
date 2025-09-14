@@ -108,11 +108,13 @@ class Config:
 
 
 def process_chunk(args):
-    # This function is executed by a worker process
+    """
+    This function is executed by a worker process to handle a single audio chunk.
+    """
     (
         audio_chunk,
         input_path,
-        times,
+        times,  # Missing in your provided code
         pitch_change,
         f0_method,
         index_path,
@@ -121,12 +123,14 @@ def process_chunk(args):
         filter_radius,
         tgt_sr,
         rms_mix_rate,
-        version,
-        protect,
+        version, # Corrected variable name
+        protect, # Corrected variable name
         crepe_hop_length,
-        p_len
+        p_len,
+        chunk_pitch,  # New pitch variable for the chunk
+        chunk_pitchf, # New pitchf variable for the chunk
     ) = args
-    
+
     return vc_global.pipeline(
         hubert_model_global,
         net_g_global,
@@ -146,7 +150,10 @@ def process_chunk(args):
         version,
         protect,
         crepe_hop_length,
-        p_len
+        p_len,
+        # Pass the chunk-specific pitch variables
+        chunk_pitch=chunk_pitch,
+        chunk_pitchf=chunk_pitchf,
     )
 
 def worker_initializer(model_path, hubert_path, device, is_half):
