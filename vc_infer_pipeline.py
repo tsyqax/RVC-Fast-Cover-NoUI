@@ -11,6 +11,7 @@ import sys
 import torch
 import torch.nn.functional as F
 import torchcrepe
+from torchfcpe import spawn_bundled_infer_model
 import traceback
 from scipy import signal
 from torch import Tensor
@@ -284,10 +285,14 @@ class VC(object):
              if hasattr(self, "model_fcpe") == False:
                  from fcpe import FCPE
 
-                 self.model_fcpe = FCPE(
-                     os.path.join(BASE_DIR, 'DIR', 'infers', 'fcpe.pt'), is_half=self.is_half, device=self.device
-                 )
-             f0 = self.model_fcpe.infer_from_audio(x, thred=0.006)
+                 self.model_fcpe = model = spawn_bundled_infer_model(device=self.device)
+             hop_size = 160
+             audio, sr = librosa.load(input_audio_path, sr=sr)
+             audio = librosa.to_mono(audio)
+             audio_length = len(audio)
+             f0_target_length = (audio_length // hop_size) + 1
+             audio = torch.from_numpy(audio).float().unsqueeze(0).unsqueeze(-1).to(self.device)
+             f0 = self.model_fcpe.infer(audio,sr = 16000, decoder_mode='local_argmax', threshold=0.006, f0_min=80, f0_max=880, interp_uv=False, output_interp_target_length=f0_target_length)
 
         f0 *= pow(2, f0_up_key / 12)
 
