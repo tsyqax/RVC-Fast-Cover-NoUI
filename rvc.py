@@ -132,6 +132,7 @@ def process_chunk(args):
     # Initialize pitch and pitchf within the worker's scope
     pitch = None
     pitchf = None
+    
     if if_f0 == 1:
         pitch, pitchf = vc_global.get_f0(
             None, # pass None for the input path to use the audio_chunk
@@ -143,6 +144,10 @@ def process_chunk(args):
             crepe_hop_length,
             None
         )
+        if pitch is not None:
+            pitch = pitch[np.newaxis, :]
+        if pitchf is not None:
+            pitchf = pitchf[np.newaxis, :]
     
     return vc_global.pipeline(
         hubert_model_global,
