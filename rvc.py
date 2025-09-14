@@ -281,6 +281,8 @@ def rvc_infer(
                 crepe_hop_length,
                 None
             )
+            pitch = pitch[np.newaxis, :]
+            pitchf = pitchf[np.newaxis, :]
 
         chunk_length = len(audio) // num_workers
         chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_workers)]
