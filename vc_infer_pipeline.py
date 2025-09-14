@@ -331,7 +331,7 @@ class VC(object):
         protect,
         p_len
     ):
-        feats = torch.from_numpy(audio0)
+        feats = torch.from_numpy(audio0.copy())
         if self.is_half:
             feats = feats.half()
         else:
