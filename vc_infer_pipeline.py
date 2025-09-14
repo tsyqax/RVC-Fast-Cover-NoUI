@@ -1,7 +1,6 @@
-# vc_infer_pipeline.py
-
 from functools import lru_cache
 from time import time as ttime
+
 import faiss
 import librosa
 import numpy as np
@@ -40,6 +39,7 @@ def cache_harvest_f0(input_audio_path, fs, f0max, f0min, frame_period):
 
 
 def change_rms(data1, sr1, data2, sr2, rate):
+    # print(data1.max(),data2.max())
     rms1 = librosa.feature.rms(
         y=data1, frame_length=sr1 // 2 * 2, hop_length=sr1 // 2
     )
@@ -79,7 +79,9 @@ class VC(object):
         self.t_max = self.sr * self.x_max
         self.device = config.device
 
+    # Fork Feature: Get the best torch device to use for f0 algorithms that require a torch device. Will return the type (torch.device)
     def get_optimal_torch_device(self, index: int = 0) -> torch.device:
+        # Get cuda device
         if torch.cuda.is_available():
             return torch.device(
                 f"cuda:{index % torch.cuda.device_count()}"
@@ -88,24 +90,7 @@ class VC(object):
             return torch.device("mps")
         return torch.device("cpu")
 
-    def pipeline_get_audio_chunks(self, audio):
-        audio_chunks = []
-        chunk_size = self.t_center
-        overlap_size = self.t_pad * 2
-        
-        start = 0
-        while start < audio.shape[0]:
-            end = start + chunk_size
-            if end > audio.shape[0]:
-                end = audio.shape[0]
-            
-            chunk = np.pad(audio[start:end], (self.t_pad, self.t_pad), mode="reflect")
-            audio_chunks.append(chunk)
-            
-            start += chunk_size - self.t_pad_tgt
-            if start < 0:
-                start = 0
-        return audio_chunks
+    # Fork Feature: Compute f0 with the crepe method
     def get_f0_crepe_computation(
         self,
         x,
@@ -174,12 +159,14 @@ class VC(object):
         f0 = f0[0].cpu().numpy()
         return f0
 
+    # Fork Feature: Compute pYIN f0 method
     def get_f0_pyin_computation(self, x, f0_min, f0_max):
         y, sr = librosa.load("saudio/Sidney.wav", self.sr, mono=True)
         f0, _, _ = librosa.pyin(y, sr=self.sr, fmin=f0_min, fmax=f0_max)
         f0 = f0[1:]
         return f0
 
+    # Fork Feature: Acquire median hybrid f0 estimation calculation
     def get_f0_hybrid_computation(
         self,
         methods_str,
@@ -277,46 +264,33 @@ class VC(object):
         global input_audio_path2wav
         time_step = self.window / self.sr * 1000
         f0_min = 50
-        f0_max = 1400  
+        f0_max = 1100
         f0_mel_min = 1127 * np.log(1 + f0_min / 700)
         f0_mel_max = 1127 * np.log(1 + f0_max / 700)
-    
+
         if f0_method not in ['rmvpe', 'fcpe']:
-            print(f"Warning: f0_method '{f0_method}' is not supported. Using 'rmvpe' instead.")
-            f0_method = 'rmvpe'
-    
-        f0 = None  # f0 변수를 미리 초기화
-        
+             print(f"Warning: f0_method '{f0_method}' is not supported. Using 'rmvpe' instead.")
+             f0_method = 'rmvpe'
+
         if f0_method == "rmvpe":
-            if not hasattr(self, "model_rmvpe"):
+            if hasattr(self, "model_rmvpe") == False:
                 from rmvpe import RMVPE
+
                 self.model_rmvpe = RMVPE(
                     os.path.join(BASE_DIR, 'DIR', 'infers', 'rmvpe.pt'), is_half=self.is_half, device=self.device
                 )
-            f0 = self.model_rmvpe.infer_from_audio(x, thred=0.015)
+            f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
         elif f0_method == "fcpe":
-            if not hasattr(self, "model_fcpe"):
-                from fcpe import FCPE
-                self.model_fcpe = FCPE(
+             if hasattr(self, "model_fcpe") == False:
+                 from fcpe import FCPE
+
+                 self.model_fcpe = FCPE(
                     os.path.join(BASE_DIR, 'DIR', 'infers', 'fcpe.pt'), device=self.device
-                )
-            f0, uv = self.model_fcpe.compute_f0_uv(x, p_len=p_len)
-            
-            if f0.ndim == 2 and f0.shape[0] > 1:
-                f0 = f0[0]
-            if uv.ndim == 2 and uv.shape[0] > 1:
-                uv = uv[0]
-        
-        # 💡 피치 추출이 실패했거나 빈 배열을 반환하는 경우를 처리합니다.
-        if f0 is None or not isinstance(f0, np.ndarray) or f0.size == 0:
-            print("Warning: Pitch extraction failed. Returning empty arrays.")
-            return np.array([]), np.array([])
-        
-        if filter_radius > 0 and (f0_method == "rmvpe" or f0_method == "fcpe"):
-            f0 = signal.medfilt(f0, filter_radius)
-    
+                 )
+             f0 = self.model_fcpe.infer_from_audio(x, thred=0.006)
+
         f0 *= pow(2, f0_up_key / 12)
-    
+
         tf0 = self.sr // self.window
         if inp_f0 is not None:
             delta_t = np.round(
@@ -329,26 +303,16 @@ class VC(object):
             f0[self.x_pad * tf0 : self.x_pad * tf0 + len(replace_f0)] = replace_f0[
                 :shape
             ]
-    
-        if isinstance(f0, torch.Tensor):
-            f0bak = f0.clone().detach().cpu().numpy()
-            f0_mel = 1127 * torch.log(1 + f0 / 700)
-            f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
-                f0_mel_max - f0_mel_min
-            ) + 1
-            f0_mel[f0_mel <= 1] = 1
-            f0_mel[f0_mel > 255] = 255
-            f0_coarse = torch.round(f0_mel).int().cpu().numpy()
-        else:
-            f0bak = f0.copy()
-            f0_mel = 1127 * np.log(1 + f0 / 700)
-            f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
-                f0_mel_max - f0_mel_min
-            ) + 1
-            f0_mel[f0_mel <= 1] = 1
-            f0_mel[f0_mel > 255] = 255
-            f0_coarse = np.rint(f0_mel).astype(np.int)
-    
+
+        f0bak = f0.copy()
+        f0_mel = 1127 * np.log(1 + f0 / 700)
+        f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
+            f0_mel_max - f0_mel_min
+        ) + 1
+        f0_mel[f0_mel <= 1] = 1
+        f0_mel[f0_mel > 255] = 255
+        f0_coarse = np.rint(f0_mel).astype(np.int)
+
         return f0_coarse, f0bak
 
     def vc(
@@ -377,7 +341,7 @@ class VC(object):
         assert feats.dim() == 1, feats.dim()
         feats = feats.view(1, -1)
         padding_mask = torch.BoolTensor(feats.shape).to(self.device).fill_(False)
-    
+
         inputs = {
             "source": feats.to(self.device),
             "padding_mask": padding_mask,
@@ -387,10 +351,8 @@ class VC(object):
         with torch.no_grad():
             logits = model.extract_features(**inputs)
             feats = model.final_proj(logits[0]) if version == "v1" else logits[0]
-    
-        if protect < 0.5 and pitch is not None and pitchf is not None and pitch.any():
+        if protect < 0.5 and pitch != None and pitchf != None:
             feats0 = feats.clone()
-        
         if (
             isinstance(index, type(None)) == False
             and isinstance(big_npy, type(None)) == False
@@ -399,47 +361,32 @@ class VC(object):
             npy = feats[0].cpu().numpy()
             if self.is_half:
                 npy = npy.astype("float32")
-    
+
             score, ix = index.search(npy, k=8)
             weight = np.square(1 / score)
             weight /= weight.sum(axis=1, keepdims=True)
             npy = np.sum(big_npy[ix] * np.expand_dims(weight, axis=2), axis=1)
-    
+
             if self.is_half:
                 npy = npy.astype("float16")
             feats = (
                 torch.from_numpy(npy).unsqueeze(0).to(self.device) * index_rate
                 + (1 - index_rate) * feats
             )
-    
+
         feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
-    
-        if pitch is not None and pitchf is not None and pitch.any():
-            pitch = torch.from_numpy(pitch).unsqueeze(0).unsqueeze(0).to(self.device).float()
-            pitchf = torch.from_numpy(pitchf).unsqueeze(0).unsqueeze(0).to(self.device).float()
-            
-            # 💡 p_len이 pitch의 길이보다 길면 오류가 발생하므로, 길이를 맞춰줍니다.
-            if p_len > pitch.shape[-1]:
-                p_len = pitch.shape[-1]
-                
-            pitch = F.interpolate(pitch[:,:,:p_len], size=feats.shape[1], mode="linear")
-            pitchf = F.interpolate(pitchf[:,:,:p_len], size=feats.shape[1], mode="linear")
-            pitch = pitch.squeeze(0).squeeze(0).long()
-            pitchf = pitchf.squeeze(0).squeeze(0).float()
-        
-        if protect < 0.5 and pitch is not None and pitchf is not None and pitch.any():
+        if protect < 0.5 and pitch != None and pitchf != None:
             feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(
                 0, 2, 1
             )
-        
         t1 = ttime()
         times[0] += t1 - t0
         t2 = ttime()
         times[2] += t2 - t1
         with torch.no_grad():
+            # p_len을 텐서로 변환
             p_len_tensor = torch.LongTensor([p_len]).to(self.device)
-        
-            if pitch is not None and pitchf is not None and pitch.any():
+            if pitch != None and pitchf != None:
                 audio1 = (
                     (net_g.infer(feats, p_len_tensor, pitch, pitchf, sid)[0][0, 0])
                     .data.cpu()
@@ -457,7 +404,7 @@ class VC(object):
         times[0] += t1 - t0
         times[2] += t2 - t1
         return audio1
-    
+
     def pipeline(
         self,
         model,
@@ -478,15 +425,67 @@ class VC(object):
         version,
         protect,
         crepe_hop_length,
-        p_len,
+        p_len, # 이 줄은 이미 추가되어 있습니다.
         f0_file=None,
     ):
-        inp_f0 = np.load(f0_file) if f0_file is not None else None
-        
+        if (
+            file_index != ""
+            and os.path.exists(file_index) == True
+            and index_rate != 0
+        ):
+            try:
+                index = faiss.read_index(file_index)
+                big_npy = index.reconstruct_n(0, index.ntotal)
+            except:
+                traceback.print_exc()
+                index = big_npy = None
+        else:
+            index = big_npy = None
+        audio = signal.filtfilt(bh, ah, audio)
+        audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
+        opt_ts = []
+        if audio_pad.shape[0] > self.t_max:
+            # 기존의 오류가 있는 루프를 효율적인 np.convolve로 대체
+            audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
+            # t 값을 오디오 길이에 맞춰 조정하고 슬라이딩 윈도우 합 배열의 길이를 고려
+            # t는 원래 audio 배열의 인덱스를 나타냅니다.
+            for t in range(self.t_center, audio.shape[0], self.t_center):
+                # audio_sum의 인덱스를 원래 audio 배열의 인덱스로부터 계산합니다.
+                audio_sum_idx = max(0, t - self.window // 2)
+                
+                # t_query 범위 내의 가장 조용한 지점을 찾습니다.
+                local_sum = audio_sum[audio_sum_idx - self.t_query // 2 : audio_sum_idx + self.t_query // 2]
+                if local_sum.size == 0:
+                    continue
+                
+                min_index_local = np.argmin(local_sum)
+                
+                # audio 배열에 대한 실제 분할 지점 인덱스를 계산합니다.
+                split_point = (audio_sum_idx - self.t_query // 2) + min_index_local
+                
+                opt_ts.append(split_point)
+
+        s = 0
+        audio_opt = []
+        t = None
+        t1 = ttime()
+        inp_f0 = None
+        if hasattr(f0_file, "name") == True:
+            try:
+                with open(f0_file.name, "r") as f:
+                    lines = f.read().strip("\n").split("\n")
+                inp_f0 = []
+                for line in lines:
+                    inp_f0.append([float(i) for i in line.split(",")])
+                inp_f0 = np.array(inp_f0, dtype="float32")
+            except:
+                traceback.print_exc()
+        sid = torch.tensor(sid, device=self.device).unsqueeze(0).long()
+        pitch, pitchf = None, None
         if if_f0 == 1:
             pitch, pitchf = self.get_f0(
                 input_audio_path,
-                audio,
+                audio_pad,
                 p_len,
                 f0_up_key,
                 f0_method,
@@ -494,49 +493,102 @@ class VC(object):
                 crepe_hop_length,
                 inp_f0,
             )
-            # 💡 pitch, pitchf 배열이 비어있는지 확인하는 로직 추가
-            if not isinstance(pitch, np.ndarray) or pitch.size == 0:
-                print("Warning: Pitch extraction failed. Skipping this chunk.")
-                return np.array([])
-                
-            p_len = min(p_len, pitch.shape[0])
             pitch = pitch[:p_len]
             pitchf = pitchf[:p_len]
+            if self.device == "mps":
+                pitchf = pitchf.astype(np.float32)
+            pitch = torch.tensor(pitch, device=self.device).unsqueeze(0).long()
+            pitchf = torch.tensor(pitchf, device=self.device).unsqueeze(0).float()
+        t2 = ttime()
+        times[1] += t2 - t1
+        for t in opt_ts:
+            t = t // self.window * self.window
+            if if_f0 == 1:
+                audio_opt.append(
+                    self.vc(
+                        model,
+                        net_g,
+                        sid,
+                        audio_pad[s : t + self.t_pad2 + self.window],
+                        pitch[:, s // self.window : (t + self.t_pad2) // self.window],
+                        pitchf[:, s // self.window : (t + self.t_pad2) // self.window],
+                        times,
+                        index,
+                        big_npy,
+                        index_rate,
+                        version,
+                        protect,
+                        (t + self.t_pad2) // self.window - s // self.window
+                    )[self.t_pad_tgt : -self.t_pad_tgt]
+                )
+            else:
+                audio_opt.append(
+                    self.vc(
+                        model,
+                        net_g,
+                        sid,
+                        audio_pad[s : t + self.t_pad2 + self.window],
+                        None,
+                        None,
+                        times,
+                        index,
+                        big_npy,
+                        index_rate,
+                        version,
+                        protect,
+                        (t + self.t_pad2) // self.window - s // self.window
+                    )[self.t_pad_tgt : -self.t_pad_tgt]
+                )
+            s = t
+        if if_f0 == 1:
+            audio_opt.append(
+                self.vc(
+                    model,
+                    net_g,
+                    sid,
+                    audio_pad[t:],
+                    pitch[:, t // self.window :] if t is not None else pitch,
+                    pitchf[:, t // self.window :] if t is not None else pitchf,
+                    times,
+                    index,
+                    big_npy,
+                    index_rate,
+                    version,
+                    protect,
+                    p_len - t // self.window if t is not None else p_len
+                )[self.t_pad_tgt : -self.t_pad_tgt]
+            )
         else:
-            pitch = pitchf = None
-        
-        if isinstance(file_index, tuple):
-            index, big_npy = file_index
-        else:
-            index = None
-            big_npy = None
-            
-        audio_opt = self.vc(
-            model,
-            net_g,
-            sid,
-            audio,
-            pitch,
-            pitchf,
-            times,
-            index,
-            big_npy,
-            index_rate,
-            version,
-            protect,
-            p_len
-        )
-        
-        if resample_sr >= 0 and resample_sr != tgt_sr:
+            audio_opt.append(
+                self.vc(
+                    model,
+                    net_g,
+                    sid,
+                    audio_pad[t:],
+                    None,
+                    None,
+                    times,
+                    index,
+                    big_npy,
+                    index_rate,
+                    version,
+                    protect,
+                    p_len - t // self.window if t is not None else p_len
+                )[self.t_pad_tgt : -self.t_pad_tgt]
+            )
+        audio_opt = np.concatenate(audio_opt)
+        if rms_mix_rate != 1:
+            audio_opt = change_rms(audio, 16000, audio_opt, tgt_sr, rms_mix_rate)
+        if resample_sr >= 16000 and tgt_sr != resample_sr:
             audio_opt = librosa.resample(
                 audio_opt, orig_sr=tgt_sr, target_sr=resample_sr
             )
-        if rms_mix_rate != 1:
-            audio_opt = change_rms(
-                data1=audio,
-                sr1=16000,
-                data2=audio_opt,
-                sr2=resample_sr,
-                rate=rms_mix_rate,
-            )
+        audio_max = np.abs(audio_opt).max() / 0.99
+        max_int16 = 32768
+        if audio_max > 1:
+            max_int16 /= audio_max
+        audio_opt = (audio_opt * max_int16).astype(np.int16)
+        del pitch, pitchf, sid
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         return audio_opt
