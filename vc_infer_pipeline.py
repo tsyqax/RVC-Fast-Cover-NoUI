@@ -405,67 +405,57 @@ class VC(object):
         times[2] += t2 - t1
         return audio1
 
-    def pipeline(
-        self,
-        model,
-        net_g,
-        sid,
-        audio,
-        input_audio_path,
-        times,
-        f0_up_key,
-        f0_method,
-        file_index,
-        index_rate,
-        if_f0,
-        filter_radius,
-        tgt_sr,
-        resample_sr,
-        rms_mix_rate,
-        version,
-        protect,
-        crepe_hop_length,
-        p_len, # 이 줄은 이미 추가되어 있습니다.
-        f0_file=None,
+def pipeline(
+    self,
+    model,
+    net_g,
+    sid,
+    audio,
+    input_audio_path,
+    times,
+    f0_up_key,
+    f0_method,
+    file_index,
+    index_rate,
+    if_f0,
+    filter_radius,
+    tgt_sr,
+    resample_sr,
+    rms_mix_rate,
+    version,
+    protect,
+    crepe_hop_length,
+    p_len, 
+    f0_file=None,
+):
+    if (
+        file_index != ""
+        and os.path.exists(file_index) == True
+        and index_rate != 0
     ):
-        if (
-            file_index != ""
-            and os.path.exists(file_index) == True
-            and index_rate != 0
-        ):
-            try:
-                index = faiss.read_index(file_index)
-                big_npy = index.reconstruct_n(0, index.ntotal)
-            except:
-                traceback.print_exc()
-                index = big_npy = None
-        else:
+        try:
+            index = faiss.read_index(file_index)
+            big_npy = index.reconstruct_n(0, index.ntotal)
+        except:
+            traceback.print_exc()
             index = big_npy = None
-        audio = signal.filtfilt(bh, ah, audio)
-        audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
-        opt_ts = []
-        if audio_pad.shape[0] > self.t_max:
-            # 기존의 오류가 있는 루프를 효율적인 np.convolve로 대체
-            audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
-            # t 값을 오디오 길이에 맞춰 조정하고 슬라이딩 윈도우 합 배열의 길이를 고려
-            # t는 원래 audio 배열의 인덱스를 나타냅니다.
-            for t in range(self.t_center, audio.shape[0], self.t_center):
-                # audio_sum의 인덱스를 원래 audio 배열의 인덱스로부터 계산합니다.
-                audio_sum_idx = max(0, t - self.window // 2)
-                
-                # t_query 범위 내의 가장 조용한 지점을 찾습니다.
-                local_sum = audio_sum[audio_sum_idx - self.t_query // 2 : audio_sum_idx + self.t_query // 2]
-                if local_sum.size == 0:
-                    continue
-                
-                min_index_local = np.argmin(local_sum)
-                
-                # audio 배열에 대한 실제 분할 지점 인덱스를 계산합니다.
-                split_point = (audio_sum_idx - self.t_query // 2) + min_index_local
-                
-                opt_ts.append(split_point)
-    
-        s = 0
+    else:
+        index = big_npy = None
+    audio = signal.filtfilt(bh, ah, audio)
+    audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
+    opt_ts = []
+    if audio_pad.shape[0] > self.t_max:
+        audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
+        for t in range(self.t_center, audio.shape[0], self.t_center):
+            audio_sum_idx = max(0, t - self.window // 2)
+            local_sum = audio_sum[audio_sum_idx - self.t_query // 2 : audio_sum_idx + self.t_query // 2]
+            if local_sum.size == 0:
+                continue
+            min_index_local = np.argmin(local_sum)
+            split_point = (audio_sum_idx - self.t_query // 2) + min_index_local
+            opt_ts.append(split_point)
+
+    s = 0
         audio_opt = []
         t = None
         t1 = ttime()
@@ -482,6 +472,8 @@ class VC(object):
                 traceback.print_exc()
         sid = torch.tensor(sid, device=self.device).unsqueeze(0).long()
         pitch, pitchf = None, None
+        
+        # A 코드의 안정적인 피치 추론 로직을 그대로 사용
         if if_f0 == 1:
             pitch, pitchf = self.get_f0(
                 input_audio_path,
@@ -499,9 +491,10 @@ class VC(object):
                 pitchf = pitchf.astype(np.float32)
             pitch = torch.tensor(pitch, device=self.device).unsqueeze(0).long()
             pitchf = torch.tensor(pitchf, device=self.device).unsqueeze(0).float()
+        
         t2 = ttime()
         times[1] += t2 - t1
-    
+        
         # B 코드의 오디오 분할 및 병합 로직 적용
         for t in opt_ts:
             t = t // self.window * self.window
@@ -545,7 +538,6 @@ class VC(object):
             audio_opt.append(processed_audio)
             s = t
             
-        # 마지막 오디오 덩어리 처리
         audio_chunk_last = np.ascontiguousarray(audio[s:])
         if if_f0 == 1:
             pitch_chunk_last = pitch[:, s // self.window:]
