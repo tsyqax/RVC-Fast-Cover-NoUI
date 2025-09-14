@@ -108,6 +108,7 @@ class Config:
 
 
 def process_chunk(args):
+    # This function is executed by a worker process
     (
         audio_chunk,
         input_path,
@@ -125,7 +126,7 @@ def process_chunk(args):
         crepe_hop_length,
         p_len
     ) = args
-
+    
     return vc_global.pipeline(
         hubert_model_global,
         net_g_global,
