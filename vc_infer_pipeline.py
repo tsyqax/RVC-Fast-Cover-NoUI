@@ -102,11 +102,10 @@ class VC(object):
             chunk = np.pad(audio[start:end], (self.t_pad, self.t_pad), mode="reflect")
             audio_chunks.append(chunk)
             
-            start += chunk_size - overlap_size 
+            start += chunk_size - self.t_pad_tgt
             if start < 0:
                 start = 0
         return audio_chunks
-
     def get_f0_crepe_computation(
         self,
         x,
