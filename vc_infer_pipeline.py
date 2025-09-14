@@ -284,9 +284,7 @@ class VC(object):
         elif f0_method == "fcpe":
             if not hasattr(self, "model_fcpe"):
                 self.model_fcpe = spawn_bundled_infer_model(device=self.device)
-                if self.is_half:
-                    self.model_fcpe.half()
-                self.model_fcpe.eval()
+                #self.model_fcpe.eval()
     
             hop_size = 160
             # 오디오를 GPU로 직접 보내지 않고, NumPy 배열 상태로 유지
