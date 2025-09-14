@@ -132,9 +132,6 @@ def process_chunk(args):
     # Initialize pitch and pitchf within the worker's scope
     pitch = None
     pitchf = None
-
-    if not isinstance(audio_chunk, np.ndarray):
-        audio_chunk = audio_chunk.cpu().numpy()
         
     if if_f0 == 1:
         pitch, pitchf = vc_global.get_f0(
@@ -325,7 +322,10 @@ def rvc_infer(
         args_list = []
         for i, chunk in enumerate(chunks):
             chunk_pad = np.pad(chunk, (vc.t_pad, vc.t_pad), mode="reflect")
-            
+            if isinstance(chunk, torch.Tensor):
+                chunk_np = chunk.cpu().numpy()
+            else:
+                chunk_np = chunk
             args_list.append(
                 (
                     chunk_pad,
