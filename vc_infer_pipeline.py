@@ -503,79 +503,87 @@ class VC(object):
         times[1] += t2 - t1
         for t in opt_ts:
             t = t // self.window * self.window
+            # 각 조각을 오디오 패딩 없이, 정확한 경계로 자르기
+            audio_chunk = audio[s:t]
+            
+            # f0 처리도 조각에 맞춰 정확하게 자르기
             if if_f0 == 1:
-                audio_opt.append(
-                    self.vc(
-                        model,
-                        net_g,
-                        sid,
-                        audio_pad[s : t + self.t_pad2 + self.window],
-                        pitch[:, s // self.window : (t + self.t_pad2) // self.window],
-                        pitchf[:, s // self.window : (t + self.t_pad2) // self.window],
-                        times,
-                        index,
-                        big_npy,
-                        index_rate,
-                        version,
-                        protect,
-                        (t + self.t_pad2) // self.window - s // self.window
-                    )[self.t_pad_tgt : -self.t_pad_tgt]
+                pitch_chunk = pitch[:, s // self.window : t // self.window]
+                pitchf_chunk = pitchf[:, s // self.window : t // self.window]
+                
+                # VC 함수 호출, 패딩 없이 오디오 조각과 f0 정보 전달
+                processed_audio = self.vc(
+                    model,
+                    net_g,
+                    sid,
+                    audio_chunk,
+                    pitch_chunk,
+                    pitchf_chunk,
+                    times,
+                    index,
+                    big_npy,
+                    index_rate,
+                    version,
+                    protect,
+                    len(pitch_chunk.squeeze())
                 )
             else:
-                audio_opt.append(
-                    self.vc(
-                        model,
-                        net_g,
-                        sid,
-                        audio_pad[s : t + self.t_pad2 + self.window],
-                        None,
-                        None,
-                        times,
-                        index,
-                        big_npy,
-                        index_rate,
-                        version,
-                        protect,
-                        (t + self.t_pad2) // self.window - s // self.window
-                    )[self.t_pad_tgt : -self.t_pad_tgt]
-                )
-            s = t
-        if if_f0 == 1:
-            audio_opt.append(
-                self.vc(
+                processed_audio = self.vc(
                     model,
                     net_g,
                     sid,
-                    audio_pad[t:],
-                    pitch[:, t // self.window :] if t is not None else pitch,
-                    pitchf[:, t // self.window :] if t is not None else pitchf,
+                    audio_chunk,
+                    None,
+                    None,
                     times,
                     index,
                     big_npy,
                     index_rate,
                     version,
                     protect,
-                    p_len - t // self.window if t is not None else p_len
-                )[self.t_pad_tgt : -self.t_pad_tgt]
+                    len(audio_chunk) // self.window
+                )
+            
+            audio_opt.append(processed_audio)
+            s = t
+        
+        # 마지막 조각 처리
+        audio_chunk_last = audio[s:]
+        if if_f0 == 1:
+            pitch_chunk_last = pitch[:, s // self.window:]
+            pitchf_chunk_last = pitchf[:, s // self.window:]
+            processed_audio_last = self.vc(
+                model,
+                net_g,
+                sid,
+                audio_chunk_last,
+                pitch_chunk_last,
+                pitchf_chunk_last,
+                times,
+                index,
+                big_npy,
+                index_rate,
+                version,
+                protect,
+                len(pitch_chunk_last.squeeze())
             )
         else:
-            audio_opt.append(
-                self.vc(
-                    model,
-                    net_g,
-                    sid,
-                    audio_pad[t:],
-                    None,
-                    None,
-                    times,
-                    index,
-                    big_npy,
-                    index_rate,
-                    version,
-                    protect,
-                    p_len - t // self.window if t is not None else p_len
-                )[self.t_pad_tgt : -self.t_pad_tgt]
+            processed_audio_last = self.vc(
+                model,
+                net_g,
+                sid,
+                audio_chunk_last,
+                None,
+                None,
+                times,
+                index,
+                big_npy,
+                index_rate,
+                version,
+                protect,
+                len(audio_chunk_last) // self.window
             )
+        audio_opt.append(processed_audio_last)
         audio_opt = np.concatenate(audio_opt)
         if rms_mix_rate != 1:
             audio_opt = change_rms(audio, 16000, audio_opt, tgt_sr, rms_mix_rate)
