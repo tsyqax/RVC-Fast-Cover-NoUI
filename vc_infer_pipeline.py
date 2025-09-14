@@ -284,19 +284,20 @@ class VC(object):
         elif f0_method == "fcpe":
             if not hasattr(self, "model_fcpe"):
                 self.model_fcpe = spawn_bundled_infer_model(device=self.device)
-                #self.model_fcpe.eval()
-    
+                self.model_fcpe.eval()
+                if self.is_half:
+                    self.model_fcpe.half()
+
             hop_size = 160
-            # 오디오를 GPU로 직접 보내지 않고, NumPy 배열 상태로 유지
             audio = librosa.to_mono(x.astype(np.float32))
             
-            chunk_size = 16000 * 5  # 5초 단위로 설정 (조정 가능)
+            chunk_size = 16000 * 5
             all_f0 = []
-    
+
             for i in range(0, len(audio), chunk_size):
                 chunk = audio[i:i + chunk_size]
                 
-                if len(chunk) < hop_size * 2: # 너무 짧은 청크는 제외
+                if len(chunk) < hop_size * 2:
                     continue
                 
                 audio_tensor = torch.from_numpy(chunk).float().unsqueeze(0).unsqueeze(-1).to(self.device)
@@ -313,13 +314,14 @@ class VC(object):
                         output_interp_target_length=None
                     )
                 
-                all_f0.append(f0_chunk.detach().cpu().numpy())
+                all_f0.append(f0_chunk.detach().cpu().numpy().squeeze())
+                
                 del audio_tensor, f0_chunk
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-    
-            f0 = np.concatenate(all_f0, axis=1).squeeze(0)
-    
+
+            f0 = np.concatenate(all_f0, axis=0)
+            
             f0_target_length = (len(audio) // hop_size) + 1
             if len(f0) != f0_target_length:
                 f0 = np.interp(
@@ -327,6 +329,7 @@ class VC(object):
                     np.arange(len(f0)),
                     f0
                 )
+
         f0 *= pow(2, f0_up_key / 12)
 
         tf0 = self.sr // self.window
