@@ -471,8 +471,7 @@ class VC(object):
             index = big_npy = None
         
         audio = signal.filtfilt(bh, ah, audio)
-        
-        audio_chunks = vc.pipeline_get_audio_chunks(audio)
+    
 
         t1 = ttime()
         inp_f0 = None
