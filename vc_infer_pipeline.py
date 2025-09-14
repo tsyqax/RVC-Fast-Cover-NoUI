@@ -472,10 +472,7 @@ class VC(object):
         
         audio = signal.filtfilt(bh, ah, audio)
         
-        # 💡 REMOVE THE DUPLICATED CODE
-        # audio_chunks = []
-        # chunk_size = self.t_center
-        # ... (rest of the code to be removed)
+        audio_chunks = vc.pipeline_get_audio_chunks(audio)
 
         t1 = ttime()
         inp_f0 = None
