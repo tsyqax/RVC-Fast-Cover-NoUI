@@ -408,6 +408,15 @@ class VC(object):
 
         feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
 
+        # 💡 feats의 길이와 pitch, pitchf의 길이를 일치시키기 위한 보간(interpolation) 추가
+        if pitch is not None and pitchf is not None and pitch.any():
+            pitch = torch.from_numpy(pitch).unsqueeze(0).unsqueeze(0).to(self.device)
+            pitchf = torch.from_numpy(pitchf).unsqueeze(0).unsqueeze(0).to(self.device)
+            pitch = F.interpolate(pitch, size=feats.shape[1], mode="linear")
+            pitchf = F.interpolate(pitchf, size=feats.shape[1], mode="linear")
+            pitch = pitch.squeeze(0).squeeze(0).long()
+            pitchf = pitchf.squeeze(0).squeeze(0).float()
+            
         if protect < 0.5 and pitch is not None and pitchf is not None and pitch.any():
             feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(
                 0, 2, 1
