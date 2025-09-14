@@ -1,30 +1,28 @@
-import os
-import sys
-import numpy as np
-import torch
-import torch.nn.functional as F
-import traceback
-import parselmouth
-import pyworld
 from functools import lru_cache
 from time import time as ttime
-from scipy import signal
 
-try:
-    import librosa
-    import faiss
-    import torchcrepe
-    from rmvpe import RMVPE
-    from fcpe import FCPE
-except ImportError:
-    pass
+import faiss
+import librosa
+import numpy as np
+import os
+import parselmouth
+import pyworld
+import sys
+import torch
+import torch.nn.functional as F
+import torchcrepe
+import traceback
+from scipy import signal
+from torch import Tensor
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 now_dir = os.path.join(BASE_DIR, 'src')
 sys.path.append(now_dir)
 
 bh, ah = signal.butter(N=5, Wn=48, btype="high", fs=16000)
+
 input_audio_path2wav = {}
+
 
 @lru_cache
 def cache_harvest_f0(input_audio_path, fs, f0max, f0min, frame_period):
@@ -39,7 +37,9 @@ def cache_harvest_f0(input_audio_path, fs, f0max, f0min, frame_period):
     f0 = pyworld.stonemask(audio, f0, t, fs)
     return f0
 
+
 def change_rms(data1, sr1, data2, sr2, rate):
+    # print(data1.max(),data2.max())
     rms1 = librosa.feature.rms(
         y=data1, frame_length=sr1 // 2 * 2, hop_length=sr1 // 2
     )
@@ -58,6 +58,7 @@ def change_rms(data1, sr1, data2, sr2, rate):
         * torch.pow(rms2, torch.tensor(rate - 1))
     ).numpy()
     return data2
+
 
 class VC(object):
     def __init__(self, tgt_sr, config):
@@ -78,7 +79,9 @@ class VC(object):
         self.t_max = self.sr * self.x_max
         self.device = config.device
 
+    # Fork Feature: Get the best torch device to use for f0 algorithms that require a torch device. Will return the type (torch.device)
     def get_optimal_torch_device(self, index: int = 0) -> torch.device:
+        # Get cuda device
         if torch.cuda.is_available():
             return torch.device(
                 f"cuda:{index % torch.cuda.device_count()}"
@@ -87,6 +90,7 @@ class VC(object):
             return torch.device("mps")
         return torch.device("cpu")
 
+    # Fork Feature: Compute f0 with the crepe method
     def get_f0_crepe_computation(
         self,
         x,
@@ -106,6 +110,7 @@ class VC(object):
         if audio.ndim == 2 and audio.shape[0] > 1:
             audio = torch.mean(audio, dim=0, keepdim=True).detach()
         audio = audio.detach()
+        print("crepe_hop_length: " + str(hop_length))
         pitch: Tensor = torchcrepe.predict(
             audio,
             self.sr,
@@ -154,12 +159,14 @@ class VC(object):
         f0 = f0[0].cpu().numpy()
         return f0
 
+    # Fork Feature: Compute pYIN f0 method
     def get_f0_pyin_computation(self, x, f0_min, f0_max):
         y, sr = librosa.load("saudio/Sidney.wav", self.sr, mono=True)
         f0, _, _ = librosa.pyin(y, sr=self.sr, fmin=f0_min, fmax=f0_max)
         f0 = f0[1:]
         return f0
 
+    # Fork Feature: Acquire median hybrid f0 estimation calculation
     def get_f0_hybrid_computation(
         self,
         methods_str,
@@ -177,6 +184,8 @@ class VC(object):
         s = s.replace("[", "").replace("]", "")
         methods = s.split("+")
         f0_computation_stack = []
+
+        print("f0 methods: %s" % str(methods))
         x = x.astype(np.float32)
         x /= np.quantile(np.abs(x), 0.999)
         for method in methods:
@@ -229,6 +238,11 @@ class VC(object):
                 f0 = signal.medfilt(f0, 3)
                 f0 = f0[1:]
             f0_computation_stack.append(f0)
+
+        for fc in f0_computation_stack:
+            print(len(fc))
+
+        print("hybrid median f0")
         f0_median_hybrid = None
         if len(f0_computation_stack) == 1:
             f0_median_hybrid = f0_computation_stack[0]
@@ -253,24 +267,30 @@ class VC(object):
         f0_max = 1100
         f0_mel_min = 1127 * np.log(1 + f0_min / 700)
         f0_mel_max = 1127 * np.log(1 + f0_max / 700)
+
         if f0_method not in ['rmvpe', 'fcpe']:
              print(f"Warning: f0_method '{f0_method}' is not supported. Using 'rmvpe' instead.")
              f0_method = 'rmvpe'
+
         if f0_method == "rmvpe":
             if hasattr(self, "model_rmvpe") == False:
                 from rmvpe import RMVPE
+
                 self.model_rmvpe = RMVPE(
                     os.path.join(BASE_DIR, 'DIR', 'infers', 'rmvpe.pt'), is_half=self.is_half, device=self.device
                 )
             f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
         elif f0_method == "fcpe":
-            if hasattr(self, "model_fcpe") == False:
-                from fcpe import FCPE
-                self.model_fcpe = FCPE(
-                    os.path.join(BASE_DIR, 'DIR', 'infers', 'fcpe.pt'), is_half=self.is_half, device=self.device
-                )
-            f0 = self.model_fcpe.infer_from_audio(x, thred=0.006)
+             if hasattr(self, "model_fcpe") == False:
+                 from fcpe import FCPE
+
+                 self.model_fcpe = FCPE(
+                     os.path.join(BASE_DIR, 'DIR', 'infers', 'fcpe.pt'), is_half=self.is_half, device=self.device
+                 )
+             f0 = self.model_fcpe.infer_from_audio(x, thred=0.006)
+
         f0 *= pow(2, f0_up_key / 12)
+
         tf0 = self.sr // self.window
         if inp_f0 is not None:
             delta_t = np.round(
@@ -283,6 +303,7 @@ class VC(object):
             f0[self.x_pad * tf0 : self.x_pad * tf0 + len(replace_f0)] = replace_f0[
                 :shape
             ]
+
         f0bak = f0.copy()
         f0_mel = 1127 * np.log(1 + f0 / 700)
         f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
@@ -291,6 +312,7 @@ class VC(object):
         f0_mel[f0_mel <= 1] = 1
         f0_mel[f0_mel > 255] = 255
         f0_coarse = np.rint(f0_mel).astype(np.int)
+
         return f0_coarse, f0bak
 
     def vc(
@@ -319,6 +341,7 @@ class VC(object):
         assert feats.dim() == 1, feats.dim()
         feats = feats.view(1, -1)
         padding_mask = torch.BoolTensor(feats.shape).to(self.device).fill_(False)
+
         inputs = {
             "source": feats.to(self.device),
             "padding_mask": padding_mask,
@@ -338,16 +361,19 @@ class VC(object):
             npy = feats[0].cpu().numpy()
             if self.is_half:
                 npy = npy.astype("float32")
+
             score, ix = index.search(npy, k=8)
             weight = np.square(1 / score)
             weight /= weight.sum(axis=1, keepdims=True)
             npy = np.sum(big_npy[ix] * np.expand_dims(weight, axis=2), axis=1)
+
             if self.is_half:
                 npy = npy.astype("float16")
             feats = (
                 torch.from_numpy(npy).unsqueeze(0).to(self.device) * index_rate
                 + (1 - index_rate) * feats
             )
+
         feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
         if protect < 0.5 and pitch != None and pitchf != None:
             feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(
@@ -358,6 +384,7 @@ class VC(object):
         t2 = ttime()
         times[2] += t2 - t1
         with torch.no_grad():
+            # p_len을 텐서로 변환
             p_len_tensor = torch.LongTensor([p_len]).to(self.device)
             if pitch != None and pitchf != None:
                 audio1 = (
@@ -368,13 +395,8 @@ class VC(object):
                 )
             else:
                 audio1 = (
-                    (net_g.infer(feats, p_len_tensor, sid)[0][0, 0])
-                    .data.cpu()
-                    .float()
-                    .numpy()
+                    (net_g.infer(feats, p_len_tensor, sid)[0][0, 0]).data.cpu().float().numpy()
                 )
-        expected_output_len = p_len * 256
-        audio1 = audio1[:expected_output_len]
         del feats, padding_mask
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -403,7 +425,7 @@ class VC(object):
         version,
         protect,
         crepe_hop_length,
-        p_len,
+        p_len, # 이 줄은 이미 추가되어 있습니다.
         f0_file=None,
     ):
         if (
@@ -423,15 +445,26 @@ class VC(object):
         audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
         opt_ts = []
         if audio_pad.shape[0] > self.t_max:
-            audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
+            audio_sum = np.zeros_like(audio)
+            for i in range(self.window):
+                audio_sum += audio_pad[i : i - self.window]
+
             for t in range(self.t_center, audio.shape[0], self.t_center):
-                audio_sum_idx = max(0, t - self.window // 2)
-                local_sum = audio_sum[audio_sum_idx - self.t_query // 2 : audio_sum_idx + self.t_query // 2]
-                if local_sum.size == 0:
-                    continue
-                min_index_local = np.argmin(local_sum)
-                split_point = (audio_sum_idx - self.t_query // 2) + min_index_local
-                opt_ts.append(split_point)
+                opt_ts.append(
+                    t
+                    - self.t_query
+                    + np.where(
+                        np.abs(audio_sum[t - self.t_query : t + self.t_query])
+                        == np.abs(audio_sum[t - self.t_query : t + self.t_query]).min()
+                    )[0][0]
+                )
+
+
+
+
+
+
+
         s = 0
         audio_opt = []
         t = None
@@ -470,7 +503,6 @@ class VC(object):
         times[1] += t2 - t1
         for t in opt_ts:
             t = t // self.window * self.window
-            current_p_len = (t + self.t_pad2) // self.window - s // self.window
             if if_f0 == 1:
                 audio_opt.append(
                     self.vc(
@@ -486,7 +518,7 @@ class VC(object):
                         index_rate,
                         version,
                         protect,
-                        current_p_len
+                        (t + self.t_pad2) // self.window - s // self.window
                     )[self.t_pad_tgt : -self.t_pad_tgt]
                 )
             else:
@@ -504,18 +536,17 @@ class VC(object):
                         index_rate,
                         version,
                         protect,
-                        current_p_len
+                        (t + self.t_pad2) // self.window - s // self.window
                     )[self.t_pad_tgt : -self.t_pad_tgt]
                 )
             s = t
         if if_f0 == 1:
-            last_p_len = p_len - (t // self.window if t is not None else 0)
             audio_opt.append(
                 self.vc(
                     model,
                     net_g,
                     sid,
-                    audio_pad[t:] if t is not None else audio_pad,
+                    audio_pad[t:],
                     pitch[:, t // self.window :] if t is not None else pitch,
                     pitchf[:, t // self.window :] if t is not None else pitchf,
                     times,
@@ -524,17 +555,16 @@ class VC(object):
                     index_rate,
                     version,
                     protect,
-                    last_p_len
+                    p_len - t // self.window if t is not None else p_len
                 )[self.t_pad_tgt : -self.t_pad_tgt]
             )
         else:
-            last_p_len = p_len - (t // self.window if t is not None else 0)
             audio_opt.append(
                 self.vc(
                     model,
                     net_g,
                     sid,
-                    audio_pad[t:] if t is not None else audio_pad,
+                    audio_pad[t:],
                     None,
                     None,
                     times,
@@ -543,7 +573,7 @@ class VC(object):
                     index_rate,
                     version,
                     protect,
-                    last_p_len
+                    p_len - t // self.window if t is not None else p_len
                 )[self.t_pad_tgt : -self.t_pad_tgt]
             )
         audio_opt = np.concatenate(audio_opt)
