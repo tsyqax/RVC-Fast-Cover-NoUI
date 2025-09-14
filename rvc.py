@@ -275,9 +275,9 @@ def rvc_infer(
             num_workers = cpu_count()
 
         chunk_length = len(audio) // num_workers
-        chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_workers)]
+        chunks = [audio[i * chunk_length:(i + 1) * chunk_length].copy() for i in range(num_workers)]
         if len(audio) % num_workers != 0:
-            chunks[-1] = np.concatenate((chunks[-1], audio[num_workers * chunk_length:]))
+            chunks[-1] = np.concatenate((chunks[-1], audio[num_workers * chunk_length:])).copy()
 
         args_list = [
             (
