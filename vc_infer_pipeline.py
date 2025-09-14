@@ -430,7 +430,7 @@ class VC(object):
     ):
         if (
             file_index != ""
-            and os.path.exists(file_index) == True
+            and os.path.exists(file_index) is True
             and index_rate != 0
         ):
             try:
@@ -441,27 +441,28 @@ class VC(object):
                 index = big_npy = None
         else:
             index = big_npy = None
+            
+        bh, ah = signal.butter(N=5, Wn=48, btype="high", fs=16000) # 더미 값
         audio = signal.filtfilt(bh, ah, audio)
-        
-        # A코드 문제 해결: 패딩 제거 및 오디오 병합 로직 수정
+        audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
         opt_ts = []
-        if audio.shape[0] > self.t_max:
+        if audio_pad.shape[0] > self.t_max:
             audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
             for t in range(self.t_center, audio.shape[0], self.t_center):
                 audio_sum_idx = max(0, t - self.window // 2)
-                local_sum = audio_sum[audio_sum_idx - self.t_query // 2: audio_sum_idx + self.t_query // 2]
+                local_sum = audio_sum[audio_sum_idx - self.t_query // 2 : audio_sum_idx + self.t_query // 2]
                 if local_sum.size == 0:
                     continue
                 min_index_local = np.argmin(local_sum)
                 split_point = (audio_sum_idx - self.t_query // 2) + min_index_local
                 opt_ts.append(split_point)
-    
+        
         s = 0
         audio_opt = []
         t = None
         t1 = ttime()
         inp_f0 = None
-        if hasattr(f0_file, "name") == True:
+        if hasattr(f0_file, "name") is True:
             try:
                 with open(f0_file.name, "r") as f:
                     lines = f.read().strip("\n").split("\n")
@@ -471,13 +472,15 @@ class VC(object):
                 inp_f0 = np.array(inp_f0, dtype="float32")
             except:
                 traceback.print_exc()
+        
         sid = torch.tensor(sid, device=self.device).unsqueeze(0).long()
         pitch, pitchf = None, None
+        
+        # A 코드의 피치 추론 부분
         if if_f0 == 1:
-            # 패딩을 없앴으니 audio_pad 대신 audio를 사용
             pitch, pitchf = self.get_f0(
                 input_audio_path,
-                audio,
+                audio_pad,
                 p_len,
                 f0_up_key,
                 f0_method,
@@ -491,89 +494,94 @@ class VC(object):
                 pitchf = pitchf.astype(np.float32)
             pitch = torch.tensor(pitch, device=self.device).unsqueeze(0).long()
             pitchf = torch.tensor(pitchf, device=self.device).unsqueeze(0).float()
+        
         t2 = ttime()
         times[1] += t2 - t1
-        
+    
+        # B 코드의 오디오 청크 처리 및 병합 부분
         for t in opt_ts:
             t = t // self.window * self.window
             
-            # B코드 문제 해결: p_len 인자 수정
+            audio_chunk = np.ascontiguousarray(audio[s:t])
+            
             if if_f0 == 1:
-                audio_opt.append(
-                    self.vc(
-                        model,
-                        net_g,
-                        sid,
-                        audio[s:t],
-                        pitch[:, s // self.window: t // self.window],
-                        pitchf[:, s // self.window: t // self.window],
-                        times,
-                        index,
-                        big_npy,
-                        index_rate,
-                        version,
-                        protect,
-                        (t // self.window) - (s // self.window)
-                    )
+                pitch_chunk = pitch[:, s // self.window : t // self.window]
+                pitchf_chunk = pitchf[:, s // self.window : t // self.window]
+                
+                processed_audio = self.vc(
+                    model,
+                    net_g,
+                    sid,
+                    audio_chunk,
+                    pitch_chunk,
+                    pitchf_chunk,
+                    times,
+                    index,
+                    big_npy,
+                    index_rate,
+                    version,
+                    protect,
+                    len(pitch_chunk.squeeze())
                 )
             else:
-                audio_opt.append(
-                    self.vc(
-                        model,
-                        net_g,
-                        sid,
-                        audio[s:t],
-                        None,
-                        None,
-                        times,
-                        index,
-                        big_npy,
-                        index_rate,
-                        version,
-                        protect,
-                        (t // self.window) - (s // self.window)
-                    )
-                )
-            s = t
-            
-        # 마지막 조각 처리
-        if if_f0 == 1:
-            audio_opt.append(
-                self.vc(
+                processed_audio = self.vc(
                     model,
                     net_g,
                     sid,
-                    audio[s:],
-                    pitch[:, s // self.window:] if s is not None else pitch,
-                    pitchf[:, s // self.window:] if s is not None else pitchf,
+                    audio_chunk,
+                    None,
+                    None,
                     times,
                     index,
                     big_npy,
                     index_rate,
                     version,
                     protect,
-                    p_len - (s // self.window) if s is not None else p_len
+                    len(audio_chunk) // self.window
                 )
+            audio_opt.append(processed_audio)
+            s = t
+    
+        # 마지막 청크 처리
+        audio_chunk_last = np.ascontiguousarray(audio[s:])
+        if if_f0 == 1:
+            pitch_chunk_last = pitch[:, s // self.window:]
+            pitchf_chunk_last = pitchf[:, s // self.window:]
+            processed_audio_last = self.vc(
+                model,
+                net_g,
+                sid,
+                audio_chunk_last,
+                pitch_chunk_last,
+                pitchf_chunk_last,
+                times,
+                index,
+                big_npy,
+                index_rate,
+                version,
+                protect,
+                len(pitch_chunk_last.squeeze())
             )
         else:
-            audio_opt.append(
-                self.vc(
-                    model,
-                    net_g,
-                    sid,
-                    audio[s:],
-                    None,
-                    None,
-                    times,
-                    index,
-                    big_npy,
-                    index_rate,
-                    version,
-                    protect,
-                    (len(audio[s:]) // self.window) if s is not None else (len(audio) // self.window)
-                )
+            processed_audio_last = self.vc(
+                model,
+                net_g,
+                sid,
+                audio_chunk_last,
+                None,
+                None,
+                times,
+                index,
+                big_npy,
+                index_rate,
+                version,
+                protect,
+                len(audio_chunk_last) // self.window
             )
+        audio_opt.append(processed_audio_last)
+        
         audio_opt = np.concatenate(audio_opt)
+        
         if rms_mix_rate != 1:
             audio_opt = change_rms(audio, 16000, audio_opt, tgt_sr, rms_mix_rate)
         if resample_sr >= 16000 and tgt_sr != resample_sr:
@@ -585,7 +593,9 @@ class VC(object):
         if audio_max > 1:
             max_int16 /= audio_max
         audio_opt = (audio_opt * max_int16).astype(np.int16)
+        
         del pitch, pitchf, sid
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        
         return audio_opt
