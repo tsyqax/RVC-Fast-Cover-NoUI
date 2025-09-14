@@ -326,95 +326,102 @@ class VC(object):
     
         return f0_coarse, f0bak
 
-    def vc(
-        self,
-        model,
-        net_g,
-        sid,
-        audio0,
-        pitch,
-        pitchf,
-        times,
-        index,
-        big_npy,
-        index_rate,
-        version,
-        protect,
-        p_len
+def vc(
+    self,
+    model,
+    net_g,
+    sid,
+    audio0,
+    pitch,
+    pitchf,
+    times,
+    index,
+    big_npy,
+    index_rate,
+    version,
+    protect,
+    p_len
+):
+    feats = torch.from_numpy(audio0)
+    if self.is_half:
+        feats = feats.half()
+    else:
+        feats = feats.float()
+    if feats.dim() == 2:
+        feats = feats.mean(-1)
+    assert feats.dim() == 1, feats.dim()
+    feats = feats.view(1, -1)
+    padding_mask = torch.BoolTensor(feats.shape).to(self.device).fill_(False)
+
+    inputs = {
+        "source": feats.to(self.device),
+        "padding_mask": padding_mask,
+        "output_layer": 9 if version == "v1" else 12,
+    }
+    t0 = ttime()
+    with torch.no_grad():
+        logits = model.extract_features(**inputs)
+        feats = model.final_proj(logits[0]) if version == "v1" else logits[0]
+
+    # 첫 번째 if 구문 수정
+    if protect < 0.5 and pitch is not None and pitchf is not None and pitch.any():
+        feats0 = feats.clone()
+    
+    if (
+        isinstance(index, type(None)) == False
+        and isinstance(big_npy, type(None)) == False
+        and index_rate != 0
     ):
-        feats = torch.from_numpy(audio0)
+        npy = feats[0].cpu().numpy()
         if self.is_half:
-            feats = feats.half()
+            npy = npy.astype("float32")
+
+        score, ix = index.search(npy, k=8)
+        weight = np.square(1 / score)
+        weight /= weight.sum(axis=1, keepdims=True)
+        npy = np.sum(big_npy[ix] * np.expand_dims(weight, axis=2), axis=1)
+
+        if self.is_half:
+            npy = npy.astype("float16")
+        feats = (
+            torch.from_numpy(npy).unsqueeze(0).to(self.device) * index_rate
+            + (1 - index_rate) * feats
+        )
+
+    feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
+
+    # 두 번째 if 구문 수정
+    if protect < 0.5 and pitch is not None and pitchf is not None and pitch.any():
+        feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(
+            0, 2, 1
+        )
+    
+    t1 = ttime()
+    times[0] += t1 - t0
+    t2 = ttime()
+    times[2] += t2 - t1
+    with torch.no_grad():
+        p_len_tensor = torch.LongTensor([p_len]).to(self.device)
+        
+        # 세 번째 if 구문 수정
+        if pitch is not None and pitchf is not None and pitch.any():
+            audio1 = (
+                (net_g.infer(feats, p_len_tensor, pitch, pitchf, sid)[0][0, 0])
+                .data.cpu()
+                .float()
+                .numpy()
+            )
         else:
-            feats = feats.float()
-        if feats.dim() == 2:
-            feats = feats.mean(-1)
-        assert feats.dim() == 1, feats.dim()
-        feats = feats.view(1, -1)
-        padding_mask = torch.BoolTensor(feats.shape).to(self.device).fill_(False)
-
-        inputs = {
-            "source": feats.to(self.device),
-            "padding_mask": padding_mask,
-            "output_layer": 9 if version == "v1" else 12,
-        }
-        t0 = ttime()
-        with torch.no_grad():
-            logits = model.extract_features(**inputs)
-            feats = model.final_proj(logits[0]) if version == "v1" else logits[0]
-        if protect < 0.5 and pitch != None and pitchf != None:
-            feats0 = feats.clone()
-        if (
-            isinstance(index, type(None)) == False
-            and isinstance(big_npy, type(None)) == False
-            and index_rate != 0
-        ):
-            npy = feats[0].cpu().numpy()
-            if self.is_half:
-                npy = npy.astype("float32")
-
-            score, ix = index.search(npy, k=8)
-            weight = np.square(1 / score)
-            weight /= weight.sum(axis=1, keepdims=True)
-            npy = np.sum(big_npy[ix] * np.expand_dims(weight, axis=2), axis=1)
-
-            if self.is_half:
-                npy = npy.astype("float16")
-            feats = (
-                torch.from_numpy(npy).unsqueeze(0).to(self.device) * index_rate
-                + (1 - index_rate) * feats
+            audio1 = (
+                (net_g.infer(feats, p_len_tensor, sid)[0][0, 0]).data.cpu().float().numpy()
             )
-
-        feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
-        if protect < 0.5 and pitch != None and pitchf != None:
-            feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(
-                0, 2, 1
-            )
-        t1 = ttime()
-        times[0] += t1 - t0
-        t2 = ttime()
-        times[2] += t2 - t1
-        with torch.no_grad():
-            p_len_tensor = torch.LongTensor([p_len]).to(self.device)
-            # 💡 CORRECT: Check if pitch is an array with a positive length.
-            if pitch is not None and len(pitch) > 0:
-                audio1 = (
-                    (net_g.infer(feats, p_len_tensor, pitch, pitchf, sid)[0][0, 0])
-                    .data.cpu()
-                    .float()
-                    .numpy()
-                )
-            else:
-                audio1 = (
-                    (net_g.infer(feats, p_len_tensor, sid)[0][0, 0]).data.cpu().float().numpy()
-                )
-        del feats, padding_mask
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        t2 = ttime()
-        times[0] += t1 - t0
-        times[2] += t2 - t1
-        return audio1
+    del feats, padding_mask
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    t2 = ttime()
+    times[0] += t1 - t0
+    times[2] += t2 - t1
+    return audio1
     
     # This method is for external use by rvc.py for parallel processing.
     def pipeline_get_audio_chunks(self, audio):
