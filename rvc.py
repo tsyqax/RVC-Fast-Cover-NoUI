@@ -132,7 +132,10 @@ def process_chunk(args):
     # Initialize pitch and pitchf within the worker's scope
     pitch = None
     pitchf = None
-    
+
+    if not isinstance(audio_chunk, np.ndarray):
+        audio_chunk = audio_chunk.cpu().numpy()
+        
     if if_f0 == 1:
         pitch, pitchf = vc_global.get_f0(
             None, # pass None for the input path to use the audio_chunk
@@ -150,6 +153,7 @@ def process_chunk(args):
             if vc_global.is_half:
                 pitch = pitch.half()
                 pitchf = pitchf.half()
+                
     pitch = torch.from_numpy(pitch).to(vc_global.device)
     pitchf = torch.from_numpy(pitchf).to(vc_global.device)    
     return vc_global.pipeline(
