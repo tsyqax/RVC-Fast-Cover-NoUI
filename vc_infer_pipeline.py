@@ -375,7 +375,7 @@ class VC(object):
             )
 
         feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
-        if protect < 0.5 and pitch != None and pitchf != None:
+        if protect < 0.5 and pitch is not None and pitchf is not None:
             feats0 = F.interpolate(feats0.permute(0, 2, 1), scale_factor=2).permute(
                 0, 2, 1
             )
@@ -386,7 +386,7 @@ class VC(object):
         with torch.no_grad():
             # p_len을 텐서로 변환
             p_len_tensor = torch.LongTensor([p_len]).to(self.device)
-            if pitch != None and pitchf != None:
+            if pitch is not None and pitchf is not None:
                 audio1 = (
                     (net_g.infer(feats, p_len_tensor, pitch, pitchf, sid)[0][0, 0])
                     .data.cpu()
