@@ -285,6 +285,8 @@ class VC(object):
             print(f"Warning: f0_method '{f0_method}' is not supported. Using 'rmvpe' instead.")
             f0_method = 'rmvpe'
     
+        f0 = None  # f0 변수를 미리 초기화
+        
         if f0_method == "rmvpe":
             if not hasattr(self, "model_rmvpe"):
                 from rmvpe import RMVPE
@@ -304,7 +306,12 @@ class VC(object):
                 f0 = f0[0]
             if uv.ndim == 2 and uv.shape[0] > 1:
                 uv = uv[0]
-                
+        
+        # 💡 피치 추출이 실패했거나 빈 배열을 반환하는 경우를 처리합니다.
+        if f0 is None or not isinstance(f0, np.ndarray) or f0.size == 0:
+            print("Warning: Pitch extraction failed. Returning empty arrays.")
+            return np.array([]), np.array([])
+        
         if filter_radius > 0 and (f0_method == "rmvpe" or f0_method == "fcpe"):
             f0 = signal.medfilt(f0, filter_radius)
     
@@ -407,12 +414,16 @@ class VC(object):
     
         feats = F.interpolate(feats.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
     
-        # 💡 The fix is here: explicitly cast to float() before interpolation
         if pitch is not None and pitchf is not None and pitch.any():
-            pitch = torch.from_numpy(pitch).unsqueeze(0).unsqueeze(0).to(self.device).float()  # <-- ADDED .float()
-            pitchf = torch.from_numpy(pitchf).unsqueeze(0).unsqueeze(0).to(self.device).float() # <-- ADDED .float()
-            pitch = F.interpolate(pitch, size=feats.shape[1], mode="linear")
-            pitchf = F.interpolate(pitchf, size=feats.shape[1], mode="linear")
+            pitch = torch.from_numpy(pitch).unsqueeze(0).unsqueeze(0).to(self.device).float()
+            pitchf = torch.from_numpy(pitchf).unsqueeze(0).unsqueeze(0).to(self.device).float()
+            
+            # 💡 p_len이 pitch의 길이보다 길면 오류가 발생하므로, 길이를 맞춰줍니다.
+            if p_len > pitch.shape[-1]:
+                p_len = pitch.shape[-1]
+                
+            pitch = F.interpolate(pitch[:,:,:p_len], size=feats.shape[1], mode="linear")
+            pitchf = F.interpolate(pitchf[:,:,:p_len], size=feats.shape[1], mode="linear")
             pitch = pitch.squeeze(0).squeeze(0).long()
             pitchf = pitchf.squeeze(0).squeeze(0).float()
         
@@ -483,6 +494,11 @@ class VC(object):
                 crepe_hop_length,
                 inp_f0,
             )
+            # 💡 pitch, pitchf 배열이 비어있는지 확인하는 로직 추가
+            if not isinstance(pitch, np.ndarray) or pitch.size == 0:
+                print("Warning: Pitch extraction failed. Skipping this chunk.")
+                return np.array([])
+                
             p_len = min(p_len, pitch.shape[0])
             pitch = pitch[:p_len]
             pitchf = pitchf[:p_len]
