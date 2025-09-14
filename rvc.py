@@ -301,7 +301,7 @@ def rvc_infer(
         ]
 
         with Pool(processes=num_workers, initializer=worker_initializer, initargs=(rvc_model_path, hubert_model_path, "cuda:0", True)) as p:
-            processed_chunks = p.map(process_chunk, [np.ascontiguousarray(arg) for arg in args_list])
+            processed_chunks = p.map(process_chunk, args_list)
         
         audio_opt = np.concatenate(processed_chunks)
 
