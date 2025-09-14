@@ -144,6 +144,10 @@ def process_chunk(args):
             crepe_hop_length,
             f0_file
         )
+        if pitch is None or pitchf is None or len(pitch) == 0:
+            print("Warning: Pitch extraction failed for a chunk. Skipping this chunk.")
+            return np.array([])  # Return an empty array to be handled later
+
         pitch = pitch[:p_len]
         pitchf = pitchf[:p_len]
 
@@ -174,7 +178,7 @@ def worker_initializer(model_path, hubert_path, device, is_half, index_path):
         hubert_model_global = load_hubert(config_global.device, config_global.is_half, hubert_path)
         cpt_global, version_global, net_g_global, _, vc_global = get_vc(config_global.device, config_global.is_half, config_global, model_path)
 
-        if os.path.exists(index_path) and os.path.getsize(index_path) > 0:
+        if index_path and os.path.exists(index_path) and os.path.getsize(index_path) > 0:
             index_global = faiss.read_index(index_path)
             big_npy_global = index_global.reconstruct_n(0, index_global.ntotal)
             if is_half:
@@ -325,6 +329,8 @@ def rvc_infer(
         with Pool(processes=num_workers, initializer=worker_initializer, initargs=(rvc_model_path, hubert_model_path, "cuda:0", True, index_path)) as p:
             processed_chunks = p.map(process_chunk, args_list)
         
+        # Filter out empty arrays before concatenation
+        processed_chunks = [chunk for chunk in processed_chunks if chunk.size > 0]
         audio_opt = np.concatenate(processed_chunks)
 
     else:
