@@ -1,3 +1,5 @@
+# vc_infer_pipeline.py
+
 from functools import lru_cache
 from time import time as ttime
 import faiss
@@ -257,7 +259,7 @@ class VC(object):
         global input_audio_path2wav
         time_step = self.window / self.sr * 1000
         f0_min = 50
-        f0_max = 1400  # Adjusted value
+        f0_max = 1400 
         f0_mel_min = 1127 * np.log(1 + f0_min / 700)
         f0_mel_max = 1127 * np.log(1 + f0_max / 700)
     
@@ -394,7 +396,8 @@ class VC(object):
         times[2] += t2 - t1
         with torch.no_grad():
             p_len_tensor = torch.LongTensor([p_len]).to(self.device)
-            if pitch != None and pitchf != None:
+            # 💡 CORRECT: Check if pitch is an array with a positive length.
+            if pitch is not None and len(pitch) > 0:
                 audio1 = (
                     (net_g.infer(feats, p_len_tensor, pitch, pitchf, sid)[0][0, 0])
                     .data.cpu()
@@ -413,7 +416,7 @@ class VC(object):
         times[2] += t2 - t1
         return audio1
     
-    # 💡 This is the correct location for the new method.
+    # This method is for external use by rvc.py for parallel processing.
     def pipeline_get_audio_chunks(self, audio):
         audio_chunks = []
         chunk_size = self.t_center
@@ -456,122 +459,28 @@ class VC(object):
         p_len,
         f0_file=None,
     ):
-        if (
-            file_index != ""
-            and os.path.exists(file_index) == True
-            and index_rate != 0
-        ):
-            try:
-                index = faiss.read_index(file_index)
-                big_npy = index.reconstruct_n(0, index.ntotal)
-            except:
-                traceback.print_exc()
-                index = big_npy = None
-        else:
-            index = big_npy = None
+        # This pipeline function is now a single-audio-segment processor.
+        # It's no longer responsible for splitting the audio.
+        # It should be called for each chunk in rvc.py's parallel processing loop.
         
-        audio = signal.filtfilt(bh, ah, audio)
-    
-
-        t1 = ttime()
-        inp_f0 = None
-        if hasattr(f0_file, "name") == True:
-            try:
-                with open(f0_file.name, "r") as f:
-                    lines = f.read().strip("\n").split("\n")
-                inp_f0 = []
-                for line in lines:
-                    inp_f0.append([float(i) for i in line.split(",")])
-                inp_f0 = np.array(inp_f0, dtype="float32")
-            except:
-                traceback.print_exc()
+        # 💡 All the pre-processing logic is moved to rvc.py
         
-        sid = torch.tensor(sid, device=self.device).unsqueeze(0).long()
-        pitch, pitchf = None, None
+        audio_opt = self.vc(
+            model,
+            net_g,
+            sid,
+            audio, # 'audio' here is a single chunk
+            pitch,
+            pitchf,
+            times,
+            index,
+            big_npy,
+            index_rate,
+            version,
+            protect,
+            p_len
+        )
         
-        audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
-        p_len = audio_pad.shape[0] // self.window
+        # 💡 The post-processing logic is also moved to rvc.py
         
-        if if_f0 == 1:
-            pitch, pitchf = self.get_f0(
-                input_audio_path,
-                audio_pad,
-                p_len,
-                f0_up_key,
-                f0_method,
-                filter_radius,
-                crepe_hop_length,
-                inp_f0,
-            )
-            pitch = pitch[:p_len]
-            pitchf = pitchf[:p_len]
-            if self.device == "mps":
-                pitchf = pitchf.astype(np.float32)
-            pitch = torch.tensor(pitch, device=self.device).unsqueeze(0).long()
-            pitchf = torch.tensor(pitchf, device=self.device).unsqueeze(0).float()
-            
-        t2 = ttime()
-        times[1] += t2 - t1
-
-        # 💡 The rest of the pipeline logic stays the same.
-        audio_opt = []
-        s_frame = 0
-        for i, audio_segment in enumerate(audio_chunks):
-            seg_len_frame = (len(audio_segment) - self.t_pad2) // self.window
-            
-            if if_f0 == 1:
-                audio_output = self.vc(
-                    model,
-                    net_g,
-                    sid,
-                    audio_segment,
-                    pitch[:, s_frame : s_frame + seg_len_frame],
-                    pitchf[:, s_frame : s_frame + seg_len_frame],
-                    times,
-                    index,
-                    big_npy,
-                    index_rate,
-                    version,
-                    protect,
-                    seg_len_frame
-                )
-            else:
-                audio_output = self.vc(
-                    model,
-                    net_g,
-                    sid,
-                    audio_segment,
-                    None,
-                    None,
-                    times,
-                    index,
-                    big_npy,
-                    index_rate,
-                    version,
-                    protect,
-                    seg_len_frame
-                )
-            
-            trimmed_output = audio_output[self.t_pad_tgt:len(audio_output) - self.t_pad_tgt]
-            audio_opt.append(trimmed_output)
-            s_frame += seg_len_frame - (self.t_pad * 2 // self.window)
-
-        audio_opt = np.concatenate(audio_opt)
-        
-        if rms_mix_rate != 1:
-            audio_opt = change_rms(audio, 16000, audio_opt, tgt_sr, rms_mix_rate)
-        if resample_sr >= 16000 and tgt_sr != resample_sr:
-            audio_opt = librosa.resample(
-                audio_opt, orig_sr=tgt_sr, target_sr=resample_sr
-            )
-        audio_max = np.abs(audio_opt).max() / 0.99
-        max_int16 = 32768
-        if audio_max > 1:
-            max_int16 /= audio_max
-        audio_opt = (audio_opt * max_int16).astype(np.int16)
-        
-        del pitch, pitchf, sid
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            
         return audio_opt
