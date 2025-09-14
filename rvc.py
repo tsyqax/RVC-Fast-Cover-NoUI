@@ -273,8 +273,7 @@ def rvc_infer(
             print(f"Could not determine VRAM. Falling back to CPU count. Error: {e}")
             num_workers = cpu_count()
 
-        # 💡 vc_infer_pipeline의 오디오 분할 로직을 활용
-        audio_chunks = vc.pipeline_get_audio_chunks(audio)
+        #audio_chunks = vc.pipeline_get_audio_chunks(audio)
         
         # 💡 작업 분배: audio_chunks를 워커 수에 맞게 분할
         chunk_size = (len(audio_chunks) + num_workers - 1) // num_workers
@@ -348,4 +347,3 @@ def rvc_infer(
         )
         
     wavfile.write(output_path, tgt_sr, audio_opt)
-    print("음성 변환 완료:", output_path)
