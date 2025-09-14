@@ -124,8 +124,25 @@ def process_chunk(args):
         version,
         protect,
         crepe_hop_length,
-        p_len
     ) = args
+    
+    # Calculate p_len for the current chunk
+    p_len = len(audio_chunk) // vc_global.window
+    
+    # Initialize pitch and pitchf within the worker's scope
+    pitch = None
+    pitchf = None
+    if if_f0 == 1:
+        pitch, pitchf = vc_global.get_f0(
+            None, # pass None for the input path to use the audio_chunk
+            audio_chunk,
+            p_len,
+            pitch_change,
+            f0_method,
+            filter_radius,
+            crepe_hop_length,
+            None
+        )
     
     return vc_global.pipeline(
         hubert_model_global,
@@ -146,7 +163,9 @@ def process_chunk(args):
         version,
         protect,
         crepe_hop_length,
-        p_len
+        p_len,
+        pitch=pitch, # Pass pitch and pitchf explicitly
+        pitchf=pitchf
     )
 
 def worker_initializer(model_path, hubert_path, device, is_half):
