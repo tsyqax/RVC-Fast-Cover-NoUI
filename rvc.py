@@ -1,7 +1,6 @@
 from multiprocessing import cpu_count, Pool, current_process
 from pathlib import Path
 import traceback
-
 import torch
 from fairseq import checkpoint_utils
 from scipy.io import wavfile
@@ -107,8 +106,8 @@ class Config:
         return x_pad, x_query, x_center, x_max
 
 
+# 💡 `process_chunk` 함수를 수정하여 필요한 인자만 받도록 변경
 def process_chunk(args):
-    # This function is executed by a worker process
     (
         audio_chunk,
         input_path,
@@ -124,13 +123,14 @@ def process_chunk(args):
         version,
         protect,
         crepe_hop_length,
-        p_len
+        p_len,
+        f0_file,
     ) = args
     
     return vc_global.pipeline(
         hubert_model_global,
         net_g_global,
-        0,
+        0, # sid
         audio_chunk,
         input_path,
         times,
@@ -141,16 +141,16 @@ def process_chunk(args):
         if_f0,
         filter_radius,
         tgt_sr,
-        0,
+        0, # resample_sr
         rms_mix_rate,
         version,
         protect,
         crepe_hop_length,
-        p_len
+        p_len,
+        f0_file,
     )
 
 def worker_initializer(model_path, hubert_path, device, is_half):
-    # This function is called once for each worker process
     global hubert_model_global, net_g_global, cpt_global, vc_global, version_global, config_global
     print(f"[{current_process().name}] Loading models...")
     
@@ -229,7 +229,8 @@ def rvc_infer(
     vc,
     hubert_model,
     rvc_model_path,
-    hubert_model_path=os.path.join(os.getcwd(), 'infers', 'hubert_base.pt')
+    hubert_model_path=os.path.join(os.getcwd(), 'infers', 'hubert_base.pt'),
+    f0_file=None,
 ):
     if f0_method not in ['rmvpe', 'fcpe']:
         print("Warning: f0 method is not supported. Using 'rmvpe'.")
@@ -243,10 +244,9 @@ def rvc_infer(
         print("Audio is longer than 1 minute and CUDA is available. Determining optimal worker count...")
         
         try:
-            # Check if models are on GPU
-            if hubert_model.parameters():
+            if hubert_model is not None and next(hubert_model.parameters()).device.type == 'cuda':
                 device = next(hubert_model.parameters()).device
-            elif net_g.parameters():
+            elif net_g is not None and next(net_g.parameters()).device.type == 'cuda':
                 device = next(net_g.parameters()).device
             else:
                 device = torch.device('cuda:0')
@@ -254,60 +254,74 @@ def rvc_infer(
             prop = torch.cuda.get_device_properties(device)
             total_vram = prop.total_memory / 1024 / 1024 # MB
             
-            # Estimate VRAM usage of one model instance (HuBERT + RVC)
             model_size_mb = 0
-            for param in hubert_model.parameters():
-                model_size_mb += param.numel() * param.element_size() / 1024 / 1024
-            for param in net_g.parameters():
-                model_size_mb += param.numel() * param.element_size() / 1024 / 1024
+            if hubert_model is not None:
+                for param in hubert_model.parameters():
+                    model_size_mb += param.numel() * param.element_size() / 1024 / 1024
+            if net_g is not None:
+                for param in net_g.parameters():
+                    model_size_mb += param.numel() * param.element_size() / 1024 / 1024
             
-            # Use a safe buffer for VRAM
             vram_buffer_mb = 512 # 512MB
-            
-            # Calculate max workers
             num_workers = int((total_vram - vram_buffer_mb) / model_size_mb)
-            num_workers = max(1, num_workers) # At least 1 worker
-            num_workers = min(num_workers, cpu_count()) # Don't exceed CPU cores
+            num_workers = max(1, num_workers)
+            num_workers = min(num_workers, cpu_count())
             
             print(f"Optimal number of workers: {num_workers} (Total VRAM: {total_vram:.2f}MB, Estimated Model size: {model_size_mb:.2f}MB)")
         except Exception as e:
             print(f"Could not determine VRAM. Falling back to CPU count. Error: {e}")
             num_workers = cpu_count()
 
-        chunk_length = len(audio) // num_workers
-        chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_workers)]
-        if len(audio) % num_workers != 0:
-            chunks[-1] = np.concatenate((chunks[-1], audio[num_workers * chunk_length:]))
+        # 💡 vc_infer_pipeline의 오디오 분할 로직을 활용
+        audio_chunks = vc.pipeline_get_audio_chunks(audio)
+        
+        # 💡 작업 분배: audio_chunks를 워커 수에 맞게 분할
+        chunk_size = (len(audio_chunks) + num_workers - 1) // num_workers
+        
+        args_list = []
+        for i in range(num_workers):
+            start_index = i * chunk_size
+            end_index = min(start_index + chunk_size, len(audio_chunks))
+            
+            if start_index >= len(audio_chunks):
+                continue
 
-        args_list = [
-            (
-                chunk,
-                input_path,
-                times,
-                pitch_change,
-                f0_method,
-                index_path,
-                index_rate,
-                if_f0,
-                filter_radius,
-                tgt_sr,
-                rms_mix_rate,
-                version,
-                protect,
-                crepe_hop_length,
-                chunk.shape[0] // vc.window, # 패딩되지 않은 오디오의 p_len 계산
+            # 💡 하나의 워커에 할당될 청크들을 하나의 큰 덩어리로 합치기
+            combined_chunk = np.concatenate(audio_chunks[start_index:end_index])
+            
+            args_list.append(
+                (
+                    combined_chunk,
+                    input_path,
+                    times,
+                    pitch_change,
+                    f0_method,
+                    index_path,
+                    index_rate,
+                    if_f0,
+                    filter_radius,
+                    tgt_sr,
+                    rms_mix_rate,
+                    version,
+                    protect,
+                    crepe_hop_length,
+                    combined_chunk.shape[0] // vc.window,
+                    f0_file
+                )
             )
-            for chunk in chunks
-        ]
 
+        # 💡 병렬 처리 실행
         with Pool(processes=num_workers, initializer=worker_initializer, initargs=(rvc_model_path, hubert_model_path, "cuda:0", True)) as p:
             processed_chunks = p.map(process_chunk, args_list)
         
+        # 💡 결과 병합
         audio_opt = np.concatenate(processed_chunks)
 
     else:
         print("Audio is short or CUDA is not available. Processing serially.")
-        p_len = audio.shape[0] // vc.window # 패딩되지 않은 오디오의 p_len 계산
+        
+        # 💡 시리얼 처리 로직은 그대로 유지
+        p_len = audio.shape[0] // vc.window
         
         audio_opt = vc.pipeline(
             hubert_model,
@@ -328,6 +342,9 @@ def rvc_infer(
             version,
             protect,
             crepe_hop_length,
-            p_len
+            p_len,
+            f0_file
         )
+        
     wavfile.write(output_path, tgt_sr, audio_opt)
+    print("음성 변환 완료:", output_path)
