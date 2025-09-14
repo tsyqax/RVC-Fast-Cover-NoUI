@@ -229,7 +229,7 @@ def rvc_infer(
     vc,
     hubert_model,
     rvc_model_path,
-    hubert_model_path=os.path.join(os.getcwd(), 'DIR', 'infers', 'hubert_base.pt')
+    hubert_model_path=os.path.join(os.getcwd(), 'infers', 'hubert_base.pt')
 ):
     if f0_method not in ['rmvpe', 'fcpe']:
         print("Warning: f0 method is not supported. Using 'rmvpe'.")
