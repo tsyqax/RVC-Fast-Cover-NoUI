@@ -1,3 +1,5 @@
+# rvc.py
+
 from multiprocessing import cpu_count, Pool, current_process
 from pathlib import Path
 import traceback
@@ -19,6 +21,7 @@ from infer_pack.models import (
 )
 from my_utils import load_audio
 from vc_infer_pipeline import VC
+import faiss
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -29,6 +32,8 @@ cpt_global = None
 vc_global = None
 version_global = None
 config_global = None
+index_global = None
+big_npy_global = None
 
 class Config:
     def __init__(self, device, is_half):
@@ -113,7 +118,6 @@ def process_chunk(args):
         times,
         pitch_change,
         f0_method,
-        index_path,
         index_rate,
         if_f0,
         filter_radius,
@@ -122,7 +126,7 @@ def process_chunk(args):
         version,
         protect,
         crepe_hop_length,
-        p_len, # This is the p_len for the combined chunk
+        p_len,
         f0_file,
     ) = args
 
@@ -153,22 +157,29 @@ def process_chunk(args):
         pitch,
         pitchf,
         times,
-        None, # Pass index/npy if needed, but it's often handled differently in parallel.
-        None,
+        index_global,
+        big_npy_global,
         index_rate,
         version,
         protect,
         p_len,
     )
 
-def worker_initializer(model_path, hubert_path, device, is_half):
-    global hubert_model_global, net_g_global, cpt_global, vc_global, version_global, config_global
+def worker_initializer(model_path, hubert_path, device, is_half, index_path):
+    global hubert_model_global, net_g_global, cpt_global, vc_global, version_global, config_global, index_global, big_npy_global
     print(f"[{current_process().name}] Loading models...")
     
     try:
         config_global = Config(device, is_half)
         hubert_model_global = load_hubert(config_global.device, config_global.is_half, hubert_path)
         cpt_global, version_global, net_g_global, _, vc_global = get_vc(config_global.device, config_global.is_half, config_global, model_path)
+
+        if os.path.exists(index_path) and os.path.getsize(index_path) > 0:
+            index_global = faiss.read_index(index_path)
+            big_npy_global = index_global.reconstruct_n(0, index_global.ntotal)
+            if is_half:
+                big_npy_global = big_npy_global.astype('float16')
+        
         print(f"[{current_process().name}] Models loaded.")
     except Exception as e:
         print(f"[{current_process().name}] Error loading models: {e}")
@@ -256,17 +267,12 @@ def rvc_infer(
         print("Audio is longer than 1 minute and CUDA is available. Determining optimal worker count...")
         
         try:
-            if hubert_model is not None and next(hubert_model.parameters()).device.type == 'cuda':
-                device = next(hubert_model.parameters()).device
-            elif net_g is not None and next(net_g.parameters()).device.type == 'cuda':
-                device = next(net_g.parameters()).device
-            else:
-                device = torch.device('cuda:0')
-                
+            device = torch.device('cuda:0')
             prop = torch.cuda.get_device_properties(device)
             total_vram = prop.total_memory / 1024 / 1024 # MB
             
             model_size_mb = 0
+            # A rough estimation of model size is enough for this purpose
             if hubert_model is not None:
                 for param in hubert_model.parameters():
                     model_size_mb += param.numel() * param.element_size() / 1024 / 1024
@@ -284,9 +290,6 @@ def rvc_infer(
             print(f"Could not determine VRAM. Falling back to CPU count. Error: {e}")
             num_workers = cpu_count()
 
-        #audio_chunks = vc.pipeline_get_audio_chunks(audio)
-        
-        # 💡 작업 분배: audio_chunks를 워커 수에 맞게 분할
         chunk_size = (len(audio_chunks) + num_workers - 1) // num_workers
         
         args_list = []
@@ -297,7 +300,6 @@ def rvc_infer(
             if start_index >= len(audio_chunks):
                 continue
 
-            # 💡 하나의 워커에 할당될 청크들을 하나의 큰 덩어리로 합치기
             combined_chunk = np.concatenate(audio_chunks[start_index:end_index])
             
             args_list.append(
@@ -307,7 +309,6 @@ def rvc_infer(
                     times,
                     pitch_change,
                     f0_method,
-                    index_path,
                     index_rate,
                     if_f0,
                     filter_radius,
@@ -317,21 +318,18 @@ def rvc_infer(
                     protect,
                     crepe_hop_length,
                     combined_chunk.shape[0] // vc.window,
-                    f0_file
+                    f0_file,
                 )
             )
 
-        # 💡 병렬 처리 실행
-        with Pool(processes=num_workers, initializer=worker_initializer, initargs=(rvc_model_path, hubert_model_path, "cuda:0", True)) as p:
+        with Pool(processes=num_workers, initializer=worker_initializer, initargs=(rvc_model_path, hubert_model_path, "cuda:0", True, index_path)) as p:
             processed_chunks = p.map(process_chunk, args_list)
         
-        # 💡 결과 병합
         audio_opt = np.concatenate(processed_chunks)
 
     else:
         print("Audio is short or CUDA is not available. Processing serially.")
         
-        # 💡 시리얼 처리 로직은 그대로 유지
         p_len = audio.shape[0] // vc.window
         
         audio_opt = vc.pipeline(
