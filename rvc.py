@@ -321,11 +321,15 @@ def rvc_infer(
 
         args_list = []
         for i, chunk in enumerate(chunks):
-            chunk_pad = np.pad(chunk, (vc.t_pad, vc.t_pad), mode="reflect")
+            # Check if the chunk is a PyTorch Tensor
             if isinstance(chunk, torch.Tensor):
+                # Convert the Tensor to a NumPy array
                 chunk_np = chunk.cpu().numpy()
             else:
                 chunk_np = chunk
+
+            chunk_pad = np.pad(chunk_np, (vc.t_pad, vc.t_pad), mode="reflect")
+            
             args_list.append(
                 (
                     chunk_pad,
