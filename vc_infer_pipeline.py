@@ -264,21 +264,20 @@ class VC(object):
         global input_audio_path2wav
         time_step = self.window / self.sr * 1000
         f0_min = 50
-        f0_max = 1400  # 고음역대 커버를 위해 상향 조정
+        f0_max = 1400  # Adjusted value
         f0_mel_min = 1127 * np.log(1 + f0_min / 700)
         f0_mel_max = 1127 * np.log(1 + f0_max / 700)
-
+    
         if f0_method not in ['rmvpe', 'fcpe']:
             print(f"Warning: f0_method '{f0_method}' is not supported. Using 'rmvpe' instead.")
             f0_method = 'rmvpe'
-
+    
         if f0_method == "rmvpe":
             if not hasattr(self, "model_rmvpe"):
                 from rmvpe import RMVPE
                 self.model_rmvpe = RMVPE(
                     os.path.join(BASE_DIR, 'DIR', 'infers', 'rmvpe.pt'), is_half=self.is_half, device=self.device
                 )
-            # 신뢰도 임계값(threshold)을 낮춰서 고음역대 소리를 놓치지 않도록 함
             f0 = self.model_rmvpe.infer_from_audio(x, thred=0.015) 
         elif f0_method == "fcpe":
             if not hasattr(self, "model_fcpe"):
@@ -292,16 +291,13 @@ class VC(object):
                 f0 = f0[0]
             if uv.ndim == 2 and uv.shape[0] > 1:
                 uv = uv[0]
-
-            f0 = f0.cpu().numpy()
-            uv = uv.cpu().numpy()
-        
-        # rmvpe와 fcpe에도 중앙값 필터(median filter) 적용
+                
+        # Apply a median filter if needed
         if filter_radius > 0 and (f0_method == "rmvpe" or f0_method == "fcpe"):
             f0 = signal.medfilt(f0, filter_radius)
-
+    
         f0 *= pow(2, f0_up_key / 12)
-
+    
         tf0 = self.sr // self.window
         if inp_f0 is not None:
             delta_t = np.round(
@@ -314,22 +310,27 @@ class VC(object):
             f0[self.x_pad * tf0 : self.x_pad * tf0 + len(replace_f0)] = replace_f0[
                 :shape
             ]
-
-        # PyTorch 텐서를 NumPy 배열로 변환
+    
+        # 💡 CORRECTED LOGIC: Perform the conversion only once at the end.
         if isinstance(f0, torch.Tensor):
-            f0 = f0.cpu().numpy()
-
-        f0bak = f0.copy()
-        f0_mel = 1127 * np.log(1 + f0 / 700)
-        
-        f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
-            f0_mel_max - f0_mel_min
-        ) + 1
-        f0_mel[f0_mel <= 1] = 1
-        f0_mel[f0_mel > 255] = 255
-        
-        f0_coarse = np.rint(f0_mel).astype(np.int)
-
+            f0bak = f0.clone().detach().cpu().numpy()
+            f0_mel = 1127 * torch.log(1 + f0 / 700)
+            f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
+                f0_mel_max - f0_mel_min
+            ) + 1
+            f0_mel[f0_mel <= 1] = 1
+            f0_mel[f0_mel > 255] = 255
+            f0_coarse = torch.round(f0_mel).int().cpu().numpy()
+        else:
+            f0bak = f0.copy()
+            f0_mel = 1127 * np.log(1 + f0 / 700)
+            f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
+                f0_mel_max - f0_mel_min
+            ) + 1
+            f0_mel[f0_mel <= 1] = 1
+            f0_mel[f0_mel > 255] = 255
+            f0_coarse = np.rint(f0_mel).astype(np.int)
+    
         return f0_coarse, f0bak
 
     def vc(
