@@ -330,7 +330,6 @@ def rvc_infer(
                     version,
                     protect,
                     crepe_hop_length,
-                    len(chunk_pad) // vc.window
                 )
             )
 
