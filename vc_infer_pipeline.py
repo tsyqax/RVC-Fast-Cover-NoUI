@@ -293,7 +293,7 @@ class VC(object):
              f0_target_length = (audio_length // hop_size) + 1
              audio = torch.from_numpy(audio).float().unsqueeze(0).unsqueeze(-1).to(self.device)
              f0 = self.model_fcpe.infer(audio,sr = 16000, decoder_mode='local_argmax', threshold=0.006, f0_min=80, f0_max=880, interp_uv=False, output_interp_target_length=f0_target_length)
-
+             f0 = f0.detach().cpu().numpy()
         f0 *= pow(2, f0_up_key / 12)
 
         tf0 = self.sr // self.window
