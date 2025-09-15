@@ -90,76 +90,7 @@ class VC(object):
         elif torch.backends.mps.is_available():
             return torch.device("mps")
         return torch.device("cpu")
-
-    # Fork Feature: Compute f0 with the crepe method
-    def get_f0_crepe_computation(
-        self,
-        x,
-        f0_min,
-        f0_max,
-        p_len,
-        hop_length=160,
-        model="full",
-    ):
-        x = x.astype(
-            np.float32
-        )
-        x /= np.quantile(np.abs(x), 0.999)
-        torch_device = self.get_optimal_torch_device()
-        audio = torch.from_numpy(x).to(torch_device, copy=True)
-        audio = torch.unsqueeze(audio, dim=0)
-        if audio.ndim == 2 and audio.shape[0] > 1:
-            audio = torch.mean(audio, dim=0, keepdim=True).detach()
-        audio = audio.detach()
-        print("crepe_hop_length: " + str(hop_length))
-        pitch: Tensor = torchcrepe.predict(
-            audio,
-            self.sr,
-            hop_length,
-            f0_min,
-            f0_max,
-            model,
-            batch_size=hop_length * 2,
-            device=torch_device,
-            pad=True,
-        )
-        p_len = p_len or x.shape[0] // hop_length
-        source = np.array(pitch.squeeze(0).cpu().float().numpy())
-        source[source < 0.001] = np.nan
-        target = np.interp(
-            np.arange(0, len(source) * p_len, len(source)) / p_len,
-            np.arange(0, len(source)),
-            source,
-        )
-        f0 = np.nan_to_num(target)
-        return f0
-
-    def get_f0_official_crepe_computation(
-        self,
-        x,
-        f0_min,
-        f0_max,
-        model="full",
-    ):
-        batch_size = 512
-        audio = torch.tensor(np.copy(x))[None].float()
-        f0, pd = torchcrepe.predict(
-            audio,
-            self.sr,
-            self.window,
-            f0_min,
-            f0_max,
-            model,
-            batch_size=batch_size,
-            device=self.device,
-            return_periodicity=True,
-        )
-        pd = torchcrepe.filter.median(pd, 3)
-        f0 = torchcrepe.filter.mean(f0, 3)
-        f0[pd < 0.1] = 0
-        f0 = f0[0].cpu().numpy()
-        return f0
-
+    
     # Fork Feature: Compute pYIN f0 method
     def get_f0_pyin_computation(self, x, f0_min, f0_max):
         y, sr = librosa.load("saudio/Sidney.wav", self.sr, mono=True)
@@ -328,7 +259,7 @@ class VC(object):
                     f0
                 )
 
-        f0 *= pow(2, f0_up_key / 12)
+        f0 *= pow(2, f0_up_key)
 
         tf0 = self.sr // self.window
         if inp_f0 is not None:
