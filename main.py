@@ -92,12 +92,12 @@ def pitch_song(pitch_vocal_path, pitch_other_path, pitch_vocal, pitch_other, son
     os.makedirs(pitout0, exist_ok=True)
     pitout1 = os.path.join(os.getcwd(), 'to_merge')
     os.makedirs(pitout1, exist_ok=True)
-    if pitch_vocal != 0:
+    '''if pitch_vocal != 0:
       pitch_vocal = 2 ** (pitch_vocal / 10)
       change_pitch(input_file=pitch_vocal_path, output_file=os.path.join(os.getcwd(), 'to_rvc', 'rvc_vocal.mp3'), pitch_factor=pitch_vocal)
     else:
-      subprocess.run(['mv', pitch_vocal_path, 'to_rvc/rvc_vocal.mp3'], check=True)
-    #subprocess.run(['mv', pitch_vocal_path, 'to_rvc/rvc_vocal.mp3'], check=True) #remove pitch (Do in RVC_infer)
+      subprocess.run(['mv', pitch_vocal_path, 'to_rvc/rvc_vocal.mp3'], check=True)'''
+    subprocess.run(['mv', pitch_vocal_path, 'to_rvc/rvc_vocal.mp3'], check=True) #remove pitch (Do in RVC_infer)
     if sep_mode is True:
     
       pitout = os.path.join(os.getcwd(), 'output', song_id)
@@ -290,8 +290,8 @@ if __name__ == '__main__':
     rvc_input_path0 = os.path.join(os.getcwd(), 'to_rvc')
     os.makedirs(rvc_input_path0, exist_ok=True)
     rvc_input_path = os.path.join(rvc_input_path0, 'rvc_vocal.mp3')
-    #pitch_vocal = pitch_vocal / 1.2
-    rvc_song(rvc_index_path, rvc_model_path, args.index_rate, rvc_input_path, rvc_output_path, 0, args.rvc_method, 3, args.rms_rate, 0.33, 128)
+    pitch_vocal = pitch_vocal / 1.2
+    rvc_song(rvc_index_path, rvc_model_path, args.index_rate, rvc_input_path, rvc_output_path, pitch_vocal, args.rvc_method, 3, args.rms_rate, 0.33, 128)
     temp_path = os.path.join(os.getcwd(), 'to_merge', 'temp_vocal_standardized.mp3')
     subprocess.run(['ffmpeg', '-i', rvc_output_path, '-codec:a', 'libmp3lame', '-b:a', '192k', '-y', temp_path], check=True)
     subprocess.run(['mv', temp_path, rvc_output_path], check=True)
