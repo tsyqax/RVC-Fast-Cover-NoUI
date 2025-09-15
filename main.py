@@ -218,7 +218,7 @@ if __name__ == '__main__':
       
       yt = YouTube(args.input, on_progress_callback=on_progress)
       ys = yt.streams.get_audio_only()
-      ys.download(filename='0000.m4a')
+      ys.download(output_path='input', filename='0000.m4a')
       audio = AudioSegment.from_file(f'input/0000.m4a')
       audio.export(f"input/0002.mp3", format="mp3", bitrate="128k")
       subprocess.run(['mv', '0002.mp3', f'input/{song_name}.mp3'], check=True)
