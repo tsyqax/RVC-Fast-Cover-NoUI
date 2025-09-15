@@ -206,7 +206,7 @@ if __name__ == '__main__':
     # input (copy)
     if 'https://' in args.input or 'http://' in args.input: # yt
       try:
-        id0 = url.split('/')[-1]
+        id0 = args.input.split('/')[-1]
         if '=' in id0:
           id = id0.split('=')[-1]
           if '?' in id:
