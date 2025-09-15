@@ -4,15 +4,15 @@ import uuid
 import subprocess
 import argparse
 import json
-import yt_dlp
 import gc
 import librosa
 import numpy as np
 import os
 import math
 
-
 from pydub import AudioSegment
+from pytubefix import YouTube
+from pytubefix.cli import on_progress
 
 from rvc import Config, load_hubert, get_vc, rvc_infer
 
@@ -205,20 +205,23 @@ if __name__ == '__main__':
 
     # input (copy)
     if 'https://' in args.input or 'http://' in args.input: # yt
-      ydl_opts = {
-          'format': 'bestaudio/best',
-          'postprocessors': [{
-              'key': 'FFmpegExtractAudio',
-              'preferredcodec': 'mp3',
-              'preferredquality': '128',
-          }],
-          'ffmpeg_location': 'ffmpeg',
-          'outtmpl': '0000.%(ext)s',
-      }
-      with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info_dict = ydl.extract_info(args.input, download=True)
-        song_name = info_dict.get('id', 'default000')
-      subprocess.run(['mv', '0000.mp3', f'input/{song_name}.mp3'], check=True)
+      try:
+        id0 = url.split('/')[-1]
+        if '=' in id0:
+          id = id0.split('=')[-1]
+          if '?' in id:
+            id = id.split('?')[-2]
+        else:
+          id = id0
+      except:
+        id = 'default_id'
+      
+      yt = YouTube(url, on_progress_callback=on_progress)
+      ys = yt.streams.get_audio_only()
+      ys.download(filename='0000.m4a')
+      audio = AudioSegment.from_file(f'input/0000.m4a')
+      audio.export(f"input/0002.mp3", format="mp3", bitrate="128k")
+      subprocess.run(['mv', '0002.mp3', f'input/{song_name}.mp3'], check=True)
       yt_mode = True
 
     else: # drive
