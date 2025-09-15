@@ -206,21 +206,21 @@ if __name__ == '__main__':
     # input (copy)
     if 'https://' in args.input or 'http://' in args.input: # yt
       try:
-        id0 = args.input.split('/')[-1]
-        if '=' in id0:
-          id = id0.split('=')[-1]
-          if '?' in id:
-            id = id.split('?')[-2]
+        song_name = args.input.split('/')[-1]
+        if '=' in song_name:
+          song_name = song_name.split('=')[-1]
+          if '?' in song_name:
+            song_name = song_name.split('?')[-2]
         else:
-          id = id0
+          song_name = song_name
       except:
-        id = 'default_id'
+        song_name = 'default_id'
       
       yt = YouTube(args.input, on_progress_callback=on_progress)
       ys = yt.streams.get_audio_only()
-      ys.download(output_path='input', filename='0000.m4a')
-      audio = AudioSegment.from_file(f'input/0000.m4a')
-      audio.export(f"input/0002.mp3", format="mp3", bitrate="128k")
+      ys.download(output_path='input0', filename='0000.m4a')
+      audio = AudioSegment.from_file(f'input0/0000.m4a')
+      audio.export(f"0002.mp3", format="mp3", bitrate="128k")
       subprocess.run(['mv', '0002.mp3', f'input/{song_name}.mp3'], check=True)
       yt_mode = True
 
