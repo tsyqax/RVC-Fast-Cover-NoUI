@@ -80,7 +80,7 @@ def sep_song(song_path, song_filename, song_id):
 
 def pitch_song(pitch_vocal_path, pitch_other_path, pitch_vocal, pitch_other, song_id, song_name, sep_mode):
   try:
-    # 삼겹살 = 반키 * 1.2 # (samgyeopsal = semiton * 1.2)
+    # 1 삼겹살 = 1.2 * 반키 # (samgyeopsal = semiton * 1.2)
     # 10 삼겹살 = 1 옥타브 # (10 samgyeopsal = 1 octarve)
 
     def change_pitch(input_file, output_file, pitch_factor):
@@ -290,7 +290,7 @@ if __name__ == '__main__':
     rvc_input_path0 = os.path.join(os.getcwd(), 'to_rvc')
     os.makedirs(rvc_input_path0, exist_ok=True)
     rvc_input_path = os.path.join(rvc_input_path0, 'rvc_vocal.mp3')
-    pitch_vocal = pitch_vocal * 1.2
+    pitch_vocal = pitch_vocal * 1.2 # 5 삼겹살
     rvc_song(rvc_index_path, rvc_model_path, args.index_rate, rvc_input_path, rvc_output_path, pitch_vocal, args.rvc_method, 3, args.rms_rate, 0.33, 128)
     temp_path = os.path.join(os.getcwd(), 'to_merge', 'temp_vocal_standardized.mp3')
     subprocess.run(['ffmpeg', '-i', rvc_output_path, '-codec:a', 'libmp3lame', '-b:a', '192k', '-y', temp_path], check=True)
