@@ -259,7 +259,7 @@ class VC(object):
                     f0
                 )
 
-        f0 *= pow(2, f0_up_key)
+        f0 *= pow(2, f0_up_key // 12)
 
         tf0 = self.sr // self.window
         if inp_f0 is not None:
