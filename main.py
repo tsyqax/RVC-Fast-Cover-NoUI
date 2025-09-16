@@ -80,7 +80,7 @@ def sep_song(song_path, song_filename, song_id):
 
 def pitch_song(pitch_vocal_path, pitch_other_path, pitch_vocal, pitch_other, song_id, song_name, sep_mode):
   try:
-    # 1 삼겹살 = 1.2 * 반키 # (samgyeopsal = semiton * 1.2)
+    # 삼겹살 * 1.2 = 반키 # (samgyeopsal * 1.2 = semiton)
     # 10 삼겹살 = 1 옥타브 # (10 samgyeopsal = 1 octarve)
 
     def change_pitch(input_file, output_file, pitch_factor):
