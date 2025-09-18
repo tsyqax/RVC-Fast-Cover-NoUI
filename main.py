@@ -216,7 +216,7 @@ if __name__ == '__main__':
       except:
         song_name = 'default_id'
       
-      yt = YouTube(args.input, on_progress_callback=on_progress)
+      yt = YouTube(args.input, on_progress_callback=on_progress, client='MWEB')
       ys = yt.streams.get_audio_only()
       ys.download(output_path='input0', filename='0000.m4a')
       audio = AudioSegment.from_file(f'input0/0000.m4a')
