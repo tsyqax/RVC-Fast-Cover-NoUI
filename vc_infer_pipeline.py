@@ -219,7 +219,9 @@ class VC(object):
 
             hop_size = 160
             audio = librosa.to_mono(x.astype(np.float32))
-            
+            audio_max = np.abs(audio).max()
+            if audio_max > 1.0:
+                audio = audio / audio_max
             chunk_size = 16000 * 5
             all_f0 = []
 
