@@ -299,4 +299,4 @@ if __name__ == '__main__':
     output_path2 = merge_song(song_name, song_id, args.rvc_name, vocal_sound, other_sound, sep_mode)
     songs[song_name] = song_id
     songsave(songs)
-    print(f'DONE!! SAVED: {output_path2}')
+    print(f'DONE!!\nSAVED: {output_path2}')
