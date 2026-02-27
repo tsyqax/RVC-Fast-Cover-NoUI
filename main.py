@@ -166,6 +166,7 @@ def merge_song(song_name, song_id, rvc_name, vocal_vol, inst_vol, sep_mode):
     output_path = os.path.join(os.getcwd(), 'output', song_id, output_filename)
 
     mixed_audio.export(output_path, format="mp3")
+    return output_path
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='AI RVC COVER', add_help=True)
@@ -295,7 +296,7 @@ if __name__ == '__main__':
     temp_path = os.path.join(os.getcwd(), 'to_merge', 'temp_vocal_standardized.mp3')
     subprocess.run(['ffmpeg', '-i', rvc_output_path, '-codec:a', 'libmp3lame', '-b:a', '192k', '-y', temp_path], check=True)
     subprocess.run(['mv', temp_path, rvc_output_path], check=True)
-    merge_song(song_name, song_id, args.rvc_name, vocal_sound, other_sound, sep_mode)
+    output_path2 = merge_song(song_name, song_id, args.rvc_name, vocal_sound, other_sound, sep_mode)
     songs[song_name] = song_id
     songsave(songs)
-    print('DONE!!')
+    print(f'DONE!! SAVED: {output_path2}')
