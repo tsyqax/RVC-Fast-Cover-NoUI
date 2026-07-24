@@ -32,4 +32,4 @@ clear_rmvpe = decrypt_text("upysh.sw")
 dl_model(clear_base_url, clear_hubert, Path('infers'))
 dl_model(clear_base_url, clear_rmvpe, Path('infers'))
 
-print('DONE!')
+print('MODEL DONE!')
