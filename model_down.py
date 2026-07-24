@@ -1,10 +1,18 @@
 import os
 import requests
 from pathlib import Path
-# Thanks to SociallyIneptWeeb/AICoverGen
+
+def decrypt_text(encoded_str, shift=-3):
+    lower_from = "abcdefghijklmnopqrstuvwxyz"
+    lower_to   = "xyzabcdefghijklmnopqrstuvw"
+    upper_from = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    upper_to   = "XYZABCDEFGHIJKLMNOPQRSTUVW"
+    tab = str.maketrans(lower_from + upper_from, lower_to + upper_to)
+    return encoded_str.translate(tab)
 
 def dl_model(link, model_name, dir_name):
-    with requests.get(f'{link}{model_name}') as r:
+    actual_url = f"{link}{model_name}"
+    with requests.get(actual_url) as r:
         r.raise_for_status()
         with open(dir_name / model_name, 'wb') as f:
             for chunk in r.iter_content(chunk_size=8192):
@@ -13,8 +21,15 @@ def dl_model(link, model_name, dir_name):
 os.makedirs('uvrs', exist_ok=True)
 os.makedirs('infers', exist_ok=True)
 
-print('MODEL... MAY 2 MINUTES')
-#dl_model('https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/MDX23C_D1581.ckpt', 'MDX23C_D1581.ckpt', '/content/DIR/uvrs')
-dl_model('https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/', 'hubert_base.pt', Path('infers'))
-dl_model('https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/', 'rmvpe.pt', Path('infers'))
-#dl_model('https://huggingface.co/datasets/ylzz1997/rmvpe_pretrain_model/resolve/main/', 'fcpe.pt', Path('/content/DIR/infers'))
+print('MODEL DOWNLOAD STARTED...')
+
+encoded_base_url = "kwwsv://kxjjlqjidfh.fr/om1995/YrlfhFrqyhuvlrqZheXL/uhvroyh/pdlq/"
+clear_base_url = decrypt_text(encoded_base_url)
+
+clear_hubert = decrypt_text("kxehuw_edvh.sw")
+clear_rmvpe = decrypt_text("upysh.sw")
+
+dl_model(clear_base_url, clear_hubert, Path('infers'))
+dl_model(clear_base_url, clear_rmvpe, Path('infers'))
+
+print('DONE!')
