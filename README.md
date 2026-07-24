@@ -1,6 +1,6 @@
-### **RVC-FAST-COVER-NOUI**
+## **RVC-FAST-COVER-NOUI**
 
-## 오류 있을 수 있음!!
+### 오류 있을 수 있음!!
 
 ### 특징  
 
@@ -37,7 +37,7 @@ Github: SociallyIneptWeeb/AICoverGen 및 Colab: CoverGen_NO_UI_v2 에서 많은 
 
 ---
 
-## Maybe could Error!!
+### Maybe could Error!!
 
 ### Features  
 
