@@ -1,7 +1,6 @@
 ### **RVC-FAST-COVER-NOUI**
 
-## 현재 제작 중  
-(오류 및 버그 탐색 중, 작동 보장 못함)
+## 오류 있을 수 있음!!
 
 ### 특징  
 
@@ -38,8 +37,7 @@ Github: SociallyIneptWeeb/AICoverGen 및 Colab: CoverGen_NO_UI_v2 에서 많은 
 
 ---
 
-## Currently in Development  
-(Searching for errors and bugs; operation is not guaranteed)
+## Maybe could Error!!
 
 ### Features  
 
