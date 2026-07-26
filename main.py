@@ -57,10 +57,10 @@ songs = songload()
 
 def sep_song(song_path, song_filename, song_id):
   #demucs_command = ["demucs","-d", "cuda", "-n", "mdx", "--mp3",  "--segment", "16", "--two-stems=vocals", song_path]
-  #demucs_command = ["demucs","-d", "cuda", "-n", "htdemucs", "--mp3", "--two-stems=vocals", song_path]
-  demucs_command = ["demucs","-d", "cuda", "-n", "htdemucs_ft", "--mp3", "--two-stems=vocals", song_path]
+  demucs_command = ["demucs","-d", "cuda", "-n", "htdemucs", "--mp3", "--two-stems=vocals", song_path]
+  #demucs_command = ["demucs","-d", "cuda", "-n", "htdemucs_ft", "--mp3", "--two-stems=vocals", song_path]
   subprocess.run(demucs_command, check=True)
-  sep_path = os.path.join(os.getcwd(), 'separated', 'htdemucs_ft', song_filename) # model name above
+  sep_path = os.path.join(os.getcwd(), 'separated', 'htdemucs', song_filename) # model name above
   os.makedirs(sep_path, exist_ok=True)
   if os.listdir(sep_path):
     instis = os.path.join(sep_path, 'no_vocals.mp3') # accompaniment
