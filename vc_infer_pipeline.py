@@ -230,7 +230,9 @@ class VC(object):
                 
                 if len(chunk) < hop_size * 2:
                     continue
-                
+
+                audio_length = len(chunk)
+                f0_target_length = (audio_length // hop_size) + 1
                 audio_tensor = torch.from_numpy(chunk).float().unsqueeze(0).unsqueeze(-1).to(self.device)
                 
                 with torch.no_grad():
@@ -242,7 +244,7 @@ class VC(object):
                         f0_min=80, 
                         f0_max=880, 
                         interp_uv=False, 
-                        output_interp_target_length=None
+                        output_interp_target_length=f0_target_length
                     )
                 
                 all_f0.append(f0_chunk.detach().cpu().numpy().squeeze())
