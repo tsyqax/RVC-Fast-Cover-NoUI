@@ -13,6 +13,7 @@ import math
 from pydub import AudioSegment
 from pytubefix import YouTube
 from pytubefix.cli import on_progress
+from concurrent.futures import ThreadPoolExecutor
 
 from rvc import Config, load_hubert, get_vc, rvc_infer
 
@@ -44,6 +45,16 @@ def songsave(data_to_update):
      print(f"ERROR: {e}")
 
 songs = songload()
+
+def str2bool(v):
+  if isinstance(v, bool):
+    return v
+  if v.lower() in ('yes', 'true', 't', 'y', '1'):
+    return True
+  elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+    return False
+  else:
+    raise argparse.ArgumentTypeError('Boolean value expected.')
 
 # input / songname.mp3
 
@@ -116,18 +127,18 @@ def pitch_song(pitch_vocal_path, pitch_other_path, pitch_vocal, pitch_other, son
   except Exception as e:
     print(f"PITCH_ERROR: {e}")
 
-def rvc_song(rvc_index_path, rvc_model_path, index_rate, input_path, output_path, pitch_change, f0_method, filter_radius, rms_mix_rate, protect, crepe_hop_length):
-  device = 'cuda:0'
+# Refactor 2
+def rvc_song(rvc_index_path, rvc_model_path, index_rate, input_path, output_path, pitch_change, f0_method, filter_radius, rms_mix_rate, protect, crepe_hop_length, parrel_mode=False):
+  device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
   config = Config(device, True)
+  
   hubert_model = load_hubert(device, config.is_half, os.path.join(os.getcwd(), 'infers', 'hubert_base.pt'))
   cpt, version, net_g, tgt_sr, vc = get_vc(device, config.is_half, config, rvc_model_path)
 
-  # convert main vocals
-  rvc_infer(rvc_index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_path)
+  rvc_infer(rvc_index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_path, parrel_mode=parrel_mode)
+
   del hubert_model, cpt
   gc.collect()
-
-
 
 def merge_song(song_name, song_id, rvc_name, vocal_vol, inst_vol, sep_mode):
     vocal_path = os.path.join(os.getcwd(), 'to_merge', 'mer_vocal.mp3')
@@ -176,17 +187,19 @@ if __name__ == '__main__':
     parser.add_argument('-rvc', '--rvc-name', type=str, required=True, help='RVC MODEL NAME')
     parser.add_argument('-p1', '--pitch-vocal', type=float, default=0, help='VOCAl PITCH CHANGE')
     parser.add_argument('-p2', '--pitch-other', type=float, default=0, help='OTHER PITCH CHANGE')
-    parser.add_argument('-sep', '--sep-mode', type=bool, default=True, help='SEPEPERATE ON OFF')
+    parser.add_argument('-sep', '--sep-mode', type=str2bool, default=True, help='SEPEPERATE ON OFF')
     parser.add_argument('-irate', '--index-rate', type=float, default=0.75, help='INDEX RATE')
     parser.add_argument('-rms', '--rms-rate', type=float, default=0.8, help='RMS RATE')
     parser.add_argument('-algo', '--rvc-method', type=str, default='rmvpe', help='RVC METHOD')
     parser.add_argument('-s1', '--vocal-sound', type=int, default=100, help='VOCAL SOUND')
     parser.add_argument('-s2', '--other-sound', type=int, default=80, help='OTHER SOUND')
+    parser.add_argument('-pm', '--parrel-mode', type=str2bool, default=True, help='PARREL MODE')
     # BooleanOptionalAction
     args = parser.parse_args()
 
-    global sep_mode, exist_check
+    global sep_mode, exist_check, parrel_mode
     sep_mode = args.sep_mode
+    parrel_mode = args.parrel_mode
     exist_check = False
     yt_mode = False
 
@@ -204,7 +217,6 @@ if __name__ == '__main__':
 
     input_dirdir = os.path.join(os.getcwd(), 'input')
     os.makedirs(input_dirdir, exist_ok=True)
-
 
     # input (copy)
     if 'https://' in args.input or 'http://' in args.input: # yt
@@ -250,7 +262,6 @@ if __name__ == '__main__':
     os.makedirs(input_path0, exist_ok=True)
     input_path = os.path.join(input_path0, f'{song_name}.mp3')
 
-
     if sep_mode is False or exist_check is True:
       print('NO SEPERATE..')
     elif sep_mode is True and exist_check is False:
@@ -294,7 +305,7 @@ if __name__ == '__main__':
     os.makedirs(rvc_input_path0, exist_ok=True)
     rvc_input_path = os.path.join(rvc_input_path0, 'rvc_vocal.mp3')
     pitch_vocal = pitch_vocal * 1.2 # 5 삼겹살
-    rvc_song(rvc_index_path, rvc_model_path, args.index_rate, rvc_input_path, rvc_output_path, pitch_vocal, args.rvc_method, 3, args.rms_rate, 0.33, 128)
+    rvc_song(rvc_index_path, rvc_model_path, args.index_rate, rvc_input_path, rvc_output_path, pitch_vocal, args.rvc_method, 3, args.rms_rate, 0.33, 128, parrel_mode)
     temp_path = os.path.join(os.getcwd(), 'to_merge', 'temp_vocal_standardized.mp3')
     subprocess.run(['ffmpeg', '-i', rvc_output_path, '-codec:a', 'libmp3lame', '-b:a', '192k', '-y', temp_path], check=True)
     subprocess.run(['mv', temp_path, rvc_output_path], check=True)
