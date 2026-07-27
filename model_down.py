@@ -26,10 +26,15 @@ print('MODEL DOWNLOAD STARTED...')
 encoded_base_url = "kwwsv://kxjjlqjidfh.fr/om1995/YrlfhFrqyhuvlrqZheXL/uhvroyh/pdlq/"
 clear_base_url = decrypt_text(encoded_base_url)
 
+encoded_kh_base_url = "kwwsv://kxjjlqjidfh.fr/nlqgakhb/yrlfh-frqyhuvlrq/uhvroyh/pdlq/"
+clear_kh_base_url = decrypt_text(encoded_kh_base_url)
+
 clear_hubert = decrypt_text("kxehuw_edvh.sw")
 clear_rmvpe = decrypt_text("upysh.sw")
+clear_fcpe = decrypt_text("ifsh.sw")
 
 dl_model(clear_base_url, clear_hubert, Path('infers'))
 dl_model(clear_base_url, clear_rmvpe, Path('infers'))
+dl_model(clear_kh_base_url, clear_fcpe, Path('infers'))
 
 print('MODEL DONE!')
