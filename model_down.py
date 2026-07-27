@@ -26,7 +26,7 @@ print('MODEL DOWNLOAD STARTED...')
 encoded_base_url = "kwwsv://kxjjlqjidfh.fr/om1995/YrlfhFrqyhuvlrqZheXL/uhvroyh/pdlq/"
 clear_base_url = decrypt_text(encoded_base_url)
 
-encoded_kh_base_url = "kwwsv://kxjjlqjidfh.fr/nlqgakhb/yrlfh-frqyhuvlrq/uhvroyh/pdlq/"
+encoded_kh_base_url = "kwwsv://kxjjlqjidfh.fr/nlqgdkha/yrlfh-frqyhuvlrq/uhvroyh/pdlq/"
 clear_kh_base_url = decrypt_text(encoded_kh_base_url)
 
 clear_hubert = decrypt_text("kxehuw_edvh.sw")
