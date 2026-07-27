@@ -181,97 +181,90 @@ class VC(object):
         else:
             f0_median_hybrid = np.nanmedian(f0_computation_stack, axis=0)
         return f0_median_hybrid
+      
+      # Refactor 5
+    def get_f0(self, input_audio_path, x, p_len, f0_up_key, f0_method, filter_radius, crepe_hop_length, inp_f0=None,):
+      global input_audio_path2wav
+      time_step = self.window / self.sr * 1000
+      f0_min = 50
+      f0_max = 1100
+      f0_mel_min = 1127 * np.log(1 + f0_min / 700)
+      f0_mel_max = 1127 * np.log(1 + f0_max / 700)
 
-    def get_f0(
-        self,
-        input_audio_path,
-        x,
-        p_len,
-        f0_up_key,
-        f0_method,
-        filter_radius,
-        crepe_hop_length,
-        inp_f0=None,
-    ):
-        global input_audio_path2wav
-        time_step = self.window / self.sr * 1000
-        f0_min = 50
-        f0_max = 1100
-        f0_mel_min = 1127 * np.log(1 + f0_min / 700)
-        f0_mel_max = 1127 * np.log(1 + f0_max / 700)
+      if f0_method not in ['rmvpe', 'fcpe']:
+        print(f"Warning: f0_method '{f0_method}' is not supported. Using 'rmvpe' instead.")
+        f0_method = 'rmvpe'
 
-        if f0_method not in ['rmvpe', 'fcpe']:
-             print(f"Warning: f0_method '{f0_method}' is not supported. Using 'rmvpe' instead.")
-             f0_method = 'rmvpe'
+      if f0_method == "rmvpe":
+        if hasattr(self, "model_rmvpe") == False:
+          from rmvpe import RMVPE
+          self.model_rmvpe = RMVPE(
+            os.path.join(BASE_DIR, 'DIR', 'infers', 'rmvpe.pt'), is_half=self.is_half, device=self.device
+          )
 
-        if f0_method == "rmvpe":
-            if hasattr(self, "model_rmvpe") == False:
-                from rmvpe import RMVPE
+        with torch.no_grad():
+          f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
 
-                self.model_rmvpe = RMVPE(
-                    os.path.join(BASE_DIR, 'DIR', 'infers', 'rmvpe.pt'), is_half=self.is_half, device=self.device
-                )
-            f0 = self.model_rmvpe.infer_from_audio(x, thred=0.03)
-        elif f0_method == "fcpe":
-            # Refactor 1: 0726
-            if not hasattr(self, "model_fcpe"):
-              self.model_fcpe = spawn_bundled_infer_model(device=self.device)
-              #self.model_fcpe.eval()
+        if torch.cuda.is_available():
+          torch.cuda.empty_cache()
 
-            hop_size = 160
-            audio = librosa.to_mono(x.astype(np.float32))
-            audio_max = np.abs(audio).max()
-            if audio_max > 1.0:
-              audio = audio / audio_max
-            audio_length = len(audio)
-            f0_target_length = (audio_length // hop_size) + 1
+      elif f0_method == "fcpe":
+        if not hasattr(self, "model_fcpe"):
+          self.model_fcpe = spawn_bundled_infer_model(device=self.device)
 
-            audio_tensor = torch.from_numpy(audio).float().unsqueeze(0).unsqueeze(-1).to(self.device)
+        hop_size = 160
+        audio = librosa.to_mono(x.astype(np.float32))
+        audio_max = np.abs(audio).max()
+        if audio_max > 1.0:
+          audio = audio / audio_max
+        audio_length = len(audio)
+        f0_target_length = (audio_length // hop_size) + 1
 
-           with torch.no_grad():
-            f0_tensor = self.model_fcpe.infer(
-                audio_tensor, 
-                sr=16000, 
-                decoder_mode='local_argmax', 
-                threshold=0.006, 
-                f0_min=80, 
-                f0_max=880, 
-                interp_uv=False, 
-                output_interp_target_length=f0_target_length
-            )
+        audio_tensor = torch.from_numpy(audio).float().unsqueeze(0).unsqueeze(-1).to(self.device)
 
-            f0 = f0_tensor.detach().cpu().numpy().squeeze()
+        with torch.no_grad():
+          f0_tensor = self.model_fcpe.infer(
+            audio_tensor, 
+            sr=16000, 
+            decoder_mode='local_argmax', 
+            threshold=0.006, 
+            f0_min=80, 
+            f0_max=880, 
+            interp_uv=True, 
+            output_interp_target_length=f0_target_length
+          )
+
+          f0 = f0_tensor.detach().cpu().numpy().squeeze()
             
-            del audio_tensor, f0_tensor
-            if torch.cuda.is_available():
-              torch.cuda.empty_cache()
+          del audio_tensor, f0_tensor
+          if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
-        f0 *= pow(2, f0_up_key / 12)
+      f0 *= pow(2, f0_up_key / 12)
 
-        tf0 = self.sr // self.window
-        if inp_f0 is not None:
-            delta_t = np.round(
-                (inp_f0[:, 0].max() - inp_f0[:, 0].min()) * tf0 + 1
-            ).astype("int16")
-            replace_f0 = np.interp(
-                list(range(delta_t)), inp_f0[:, 0] * 100, inp_f0[:, 1]
-            )
-            shape = f0[self.x_pad * tf0 : self.x_pad * tf0 + len(replace_f0)].shape[0]
-            f0[self.x_pad * tf0 : self.x_pad * tf0 + len(replace_f0)] = replace_f0[
-                :shape
-            ]
+      tf0 = self.sr // self.window
+      if inp_f0 is not None:
+        delta_t = np.round(
+          (inp_f0[:, 0].max() - inp_f0[:, 0].min()) * tf0 + 1
+        ).astype("int16")
+        replace_f0 = np.interp(
+          list(range(delta_t)), inp_f0[:, 0] * 100, inp_f0[:, 1]
+        )
+        shape = f0[self.x_pad * tf0 : self.x_pad * tf0 + len(replace_f0)].shape[0]
+        f0[self.x_pad * tf0 : self.x_pad * tf0 + len(replace_f0)] = replace_f0[:shape]
 
-        f0bak = f0.copy()
-        f0_mel = 1127 * np.log(1 + f0 / 700)
-        f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
-            f0_mel_max - f0_mel_min
-        ) + 1
-        f0_mel[f0_mel <= 1] = 1
-        f0_mel[f0_mel > 255] = 255
-        f0_coarse = np.rint(f0_mel).astype(np.int)
+      f0bak = f0.copy()
+      f0_mel = 1127 * np.log(1 + f0 / 700)
+      f0_mel[f0_mel > 0] = (f0_mel[f0_mel > 0] - f0_mel_min) * 254 / (
+        f0_mel_max - f0_mel_min
+      ) + 1
+      f0_mel[f0_mel <= 1] = 1
+      f0_mel[f0_mel > 255] = 255
+      f0_coarse = np.rint(f0_mel).astype(np.int)
 
-        return f0_coarse, f0bak
-
+      return f0_coarse, f0bak
+    
+    
     def vc(
         self,
         model,
@@ -341,7 +334,7 @@ class VC(object):
         t2 = ttime()
         times[2] += t2 - t1
         with torch.no_grad():
-            # p_len을 텐서로 변환
+            # p_len to tensor
             p_len_tensor = torch.LongTensor([p_len]).to(self.device)
             if pitch != None and pitchf != None:
                 audio1 = (
@@ -361,204 +354,158 @@ class VC(object):
         times[0] += t1 - t0
         times[2] += t2 - t1
         return audio1
-
-    def pipeline(
-        self,
-        model,
-        net_g,
-        sid,
-        audio,
-        input_audio_path,
-        times,
-        f0_up_key,
-        f0_method,
-        file_index,
-        index_rate,
-        if_f0,
-        filter_radius,
-        tgt_sr,
-        resample_sr,
-        rms_mix_rate,
-        version,
-        protect,
-        crepe_hop_length,
-        p_len,
-        f0_file=None,
-    ):
-        if (
-            file_index != ""
-            and os.path.exists(file_index) == True
-            and index_rate != 0
-        ):
-            try:
-                index = faiss.read_index(file_index)
-                big_npy = index.reconstruct_n(0, index.ntotal)
-            except:
-                traceback.print_exc()
-                index = big_npy = None
-        else:
-            index = big_npy = None
-        
-        # 패딩 제거
-        # audio = signal.filtfilt(bh, ah, audio) # bh, ah가 정의되지 않아 주석처리
-        # audio_pad = np.pad(audio, (self.t_pad, self.t_pad), mode="reflect")
-        audio_pad = audio # 패딩을 제거하기 위해 원본 audio 사용
-        
-        opt_ts = []
-        if audio_pad.shape[0] > self.t_max:
-            audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
-            for t in range(self.t_center, audio.shape[0], self.t_center):
-                audio_sum_idx = max(0, t - self.window // 2)
-                local_sum = audio_sum[audio_sum_idx - self.t_query // 2 : audio_sum_idx + self.t_query // 2]
-                if local_sum.size == 0:
-                    continue
-                min_index_local = np.argmin(local_sum)
-                split_point = (audio_sum_idx - self.t_query // 2) + min_index_local
-                opt_ts.append(split_point)
     
-        s = 0
-        audio_opt = []
-        t = None
-        t1 = ttime()
-        inp_f0 = None
-        if hasattr(f0_file, "name") == True:
-            try:
-                with open(f0_file.name, "r") as f:
-                    lines = f.read().strip("\n").split("\n")
-                inp_f0 = []
-                for line in lines:
-                    inp_f0.append([float(i) for i in line.split(",")])
-                inp_f0 = np.array(inp_f0, dtype="float32")
-            except:
-                traceback.print_exc()
-        
-        sid = torch.tensor(sid, device=self.device).unsqueeze(0).long()
-        pitch, pitchf = None, None
-        if if_f0 == 1:
-            pitch, pitchf = self.get_f0(
-                input_audio_path,
-                audio_pad,
-                p_len,
-                f0_up_key,
-                f0_method,
-                filter_radius,
-                crepe_hop_length,
-                inp_f0,
-            )
-            pitch = pitch[:p_len]
-            pitchf = pitchf[:p_len]
-            if self.device == "mps":
-                pitchf = pitchf.astype(np.float32)
-            pitch = torch.tensor(pitch, device=self.device).unsqueeze(0).long()
-            pitchf = torch.tensor(pitchf, device=self.device).unsqueeze(0).float()
-        
-        t2 = ttime()
-        times[1] += t2 - t1
-        
-        for t in opt_ts:
-            t = t // self.window * self.window
-            
-            # B 코드의 개선된 오디오 분할 방식 적용
-            audio_chunk = np.ascontiguousarray(audio[s:t])
-            
-            if if_f0 == 1:
-                # B 코드의 개선된 피치 청크 슬라이싱 적용
-                pitch_chunk = pitch[:, s // self.window : t // self.window]
-                pitchf_chunk = pitchf[:, s // self.window : t // self.window]
-                
-                processed_audio = self.vc(
-                    model,
-                    net_g,
-                    sid,
-                    audio_chunk,
-                    pitch_chunk,
-                    pitchf_chunk,
-                    times,
-                    index,
-                    big_npy,
-                    index_rate,
-                    version,
-                    protect,
-                    len(audio_chunk) // self.window # B 코드의 문제 해결
-                )
-            else:
-                processed_audio = self.vc(
-                    model,
-                    net_g,
-                    sid,
-                    audio_chunk,
-                    None,
-                    None,
-                    times,
-                    index,
-                    big_npy,
-                    index_rate,
-                    version,
-                    protect,
-                    len(audio_chunk) // self.window
-                )
-            
-            audio_opt.append(processed_audio)
-            s = t
-            
-        # 마지막 조각 처리
-        audio_chunk_last = np.ascontiguousarray(audio[s:])
-        if if_f0 == 1:
-            pitch_chunk_last = pitch[:, s // self.window:]
-            pitchf_chunk_last = pitchf[:, s // self.window:]
-            processed_audio_last = self.vc(
-                model,
-                net_g,
-                sid,
-                audio_chunk_last,
-                pitch_chunk_last,
-                pitchf_chunk_last,
-                times,
-                index,
-                big_npy,
-                index_rate,
-                version,
-                protect,
-                len(audio_chunk_last) // self.window
-            )
+    # Refactor 4
+    def pipeline(self, model, net_g, sid, audio, input_audio_path, times, f0_up_key, f0_method, file_index, index_rate, if_f0, filter_radius, tgt_sr, resample_sr, rms_mix_rate, version, protect, crepe_hop_length, p_len, f0_file=None, parrel_mode=False):
+      if (file_index != "" and os.path.exists(file_index) == True and index_rate != 0):
+        try:
+          index = faiss.read_index(file_index)
+          big_npy = index.reconstruct_n(0, index.ntotal)
+        except:
+          traceback.print_exc()
+          index = big_npy = None
+      else:
+        index = big_npy = None
+
+      audio_pad = audio 
+
+      opt_ts = []
+
+      if audio_pad.shape[0] > self.t_max:
+        audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
+        if parrel_mode:
+          t_points = np.arange(self.t_center, audio.shape[0], self.t_center)
+          if t_points.size > 0:
+            audio_sum_idxs = np.maximum(0, t_points - self.window // 2)
+            starts = audio_sum_idxs - self.t_query // 2
+            grid = starts[:, None] + np.arange(self.t_query)
+            grid = np.clip(grid, 0, audio_sum.shape[0] - 1)
+            min_indices = np.argmin(audio_sum[grid], axis=1)
+            calculated_ts = (audio_sum_idxs - self.t_query // 2) + min_indices
+            opt_ts = calculated_ts.tolist()
         else:
-            processed_audio_last = self.vc(
-                model,
-                net_g,
-                sid,
-                audio_chunk_last,
-                None,
-                None,
-                times,
-                index,
-                big_npy,
-                index_rate,
-                version,
-                protect,
-                len(audio_chunk_last) // self.window
-            )
-            
-        audio_opt.append(processed_audio_last)
-        
-        audio_opt = np.concatenate(audio_opt)
-        
-        if rms_mix_rate != 1:
-            audio_opt = change_rms(audio, 16000, audio_opt, tgt_sr, rms_mix_rate)
-        
-        if resample_sr >= 16000 and tgt_sr != resample_sr:
-            audio_opt = librosa.resample(
-                audio_opt, orig_sr=tgt_sr, target_sr=resample_sr
-            )
-        
-        audio_max = np.abs(audio_opt).max() / 0.99
-        max_int16 = 32768
-        if audio_max > 1:
-            max_int16 /= audio_max
-        
-        audio_opt = (audio_opt * max_int16).astype(np.int16)
-        
-        del pitch, pitchf, sid
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        
-        return audio_opt
+          for t in range(self.t_center, audio.shape[0], self.t_center):
+            audio_sum_idx = max(0, t - self.window // 2)
+            local_sum = audio_sum[audio_sum_idx - self.t_query // 2 : audio_sum_idx + self.t_query // 2]
+            if local_sum.size == 0:
+              continue
+            min_index_local = np.argmin(local_sum)
+            split_point = (audio_sum_idx - self.t_query // 2) + min_index_local
+            opt_ts.append(split_point)
+    
+      s = 0
+      audio_opt = []
+      t = None
+      t1 = ttime()
+      inp_f0 = None
+      if hasattr(f0_file, "name") == True:
+        try:
+          with open(f0_file.name, "r") as f:
+            lines = f.read().strip("\n").split("\n")
+            inp_f0 = []
+            for line in lines:
+              inp_f0.append([float(i) for i in line.split(",")])
+            inp_f0 = np.array(inp_f0, dtype="float32")
+        except:
+          traceback.print_exc()
+      
+      sid = torch.tensor(sid, device=self.device).unsqueeze(0).long()
+      pitch, pitchf = None, None
+      if if_f0 == 1:
+        pitch, pitchf = self.get_f0(
+          input_audio_path,
+          audio_pad,
+          p_len,
+          f0_up_key,
+          f0_method,
+          filter_radius,
+          crepe_hop_length,
+          inp_f0,
+        )
+        pitch = pitch[:p_len]
+        pitchf = pitchf[:p_len]
+        if self.device == "mps":
+          pitchf = pitchf.astype(np.float32)
+        pitch = torch.tensor(pitch, device=self.device).unsqueeze(0).long()
+        pitchf = torch.tensor(pitchf, device=self.device).unsqueeze(0).float()
+      
+      t2 = ttime()
+      times[1] += t2 - t1
+      
+      for t in opt_ts:
+        t = t // self.window * self.window
+        audio_chunk = np.ascontiguousarray(audio[s:t])
+        if if_f0 == 1:
+          pitch_chunk = pitch[:, s // self.window : t // self.window]
+          pitchf_chunk = pitchf[:, s // self.window : t // self.window]
+          processed_audio = self.vc(
+            model, net_g, sid, audio_chunk, pitch_chunk, pitchf_chunk,
+            times, index, big_npy, index_rate, version, protect, len(audio_chunk) // self.window
+          )
+        else:
+          processed_audio = self.vc(
+            model, net_g, sid, audio_chunk, None, None,
+            times, index, big_npy, index_rate, version, protect, len(audio_chunk) // self.window
+          )
+        audio_opt.append(processed_audio)
+        s = t
+
+      audio_chunk_last = np.ascontiguousarray(audio[s:])
+      if if_f0 == 1:
+        pitch_chunk_last = pitch[:, s // self.window:]
+        pitchf_chunk_last = pitchf[:, s // self.window:]
+        processed_audio_last = self.vc(
+          model,
+          net_g,
+          sid,
+          audio_chunk_last,
+          pitch_chunk_last,
+          pitchf_chunk_last,
+          times,
+          index,
+          big_npy,
+          index_rate,
+          version,
+          protect,
+          len(audio_chunk_last) // self.window
+        )
+      else:
+        processed_audio_last = self.vc(
+          model,
+          net_g,
+          sid,
+          audio_chunk_last,
+          None,
+          None,
+          times,
+          index,
+          big_npy,
+          index_rate,
+          version,
+          protect,
+          len(audio_chunk_last) // self.window
+        )
+
+      audio_opt.append(processed_audio_last)
+      audio_opt = np.concatenate(audio_opt)
+      
+      if rms_mix_rate != 1:
+        audio_opt = change_rms(audio, 16000, audio_opt, tgt_sr, rms_mix_rate)
+      
+      if resample_sr >= 16000 and tgt_sr != resample_sr:
+        audio_opt = librosa.resample(
+          audio_opt, orig_sr=tgt_sr, target_sr=resample_sr
+        )
+      
+      audio_max = np.abs(audio_opt).max() / 0.99
+      max_int16 = 32768
+      if audio_max > 1:
+        max_int16 /= audio_max
+      
+      audio_opt = (audio_opt * max_int16).astype(np.int16)
+      
+      del pitch, pitchf, sid
+      if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+      
+      return audio_opt
