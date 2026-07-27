@@ -35,6 +35,6 @@ clear_fcpe = decrypt_text("ifsh.sw")
 
 dl_model(clear_base_url, clear_hubert, Path('infers'))
 dl_model(clear_base_url, clear_rmvpe, Path('infers'))
-dl_model(clear_kh_base_url, clear_fcpe, Path('infers'))
+#dl_model(clear_kh_base_url, clear_fcpe, Path('infers'))
 
 print('MODEL DONE!')
