@@ -28,7 +28,7 @@
 ## 사용법
 
 ### 구글 코랩 사용자
-링크를 통해 전체 파이프라인을 직접 실행할 수 있습니다: **[한국어](https://google.com)** **[EN](https://google.com)**  
+링크를 통해 전체 파이프라인을 직접 실행할 수 있습니다: **[[한국어]](https://colab.research.google.com/drive/10iTH1SGxQK2TCDfzUpgke1UFBUJHGCnk)** **[[EN]](https://colab.research.google.com/drive/1ki84JkAFXUDIDmj2YHWRX52nhuJ5VOVO)**  
 *⚠️ 주의: 유튜브 모드를 사용할 때, 코랩 환경은 일시적인 속도 제한이나 차단 조치에 매우 취약합니다.  
 소스 자산은 로컬 파일 업로드나 구글 드라이브 경로를 통해 직접 저장하는 것을 권장합니다.*
 
@@ -85,7 +85,7 @@ In addition, features have been slightly reduced but the focus has been placed o
 ## How to Use
 
 ### Google Colab Users
-You can run the entire pipeline directly via link: **[한국어](https://colab.research.google.com/drive/10iTH1SGxQK2TCDfzUpgke1UFBUJHGCnk)** **[EN](https://colab.research.google.com/drive/1ki84JkAFXUDIDmj2YHWRX52nhuJ5VOVO)**  
+You can run the entire pipeline directly via link: **[[한국어]](https://colab.research.google.com/drive/10iTH1SGxQK2TCDfzUpgke1UFBUJHGCnk)** **[[EN]](https://colab.research.google.com/drive/1ki84JkAFXUDIDmj2YHWRX52nhuJ5VOVO)**  
 *⚠️ Warning: When using YouTube Mode, colab environment is highly susceptible to temporary rate limits or restrictions.  
 Storing source assets directly via local file uploads or Google Drive paths is recommended.*
 
