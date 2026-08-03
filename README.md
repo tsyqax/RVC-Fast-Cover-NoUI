@@ -12,7 +12,7 @@
 
 ## 프로젝트 목표
 * **빠른 추론**: 더 빠른 음성 변환 속도를 달성하도록 설계되었습니다.
-* **자체 병렬화 파이프라인**: 엄격한 0% OOM 안정성을 유지하면서 GPU 처리량을 극대화하기 위해 비동기 실행 분할을 구현합니다.
+* **자체 병렬화 파이프라인**: 안정성을 유지하면서 GPU 처리량을 극대화하기 위해 비동기 실행 분할을 구현합니다.
 * **간결한 작업 흐름**: 분리-캐싱 데이터 재사용으로 강화된 가벼운 원클릭 CLI 환경입니다.
 
 ---
@@ -69,7 +69,7 @@ In addition, features have been slightly reduced but the focus has been placed o
 
 ## Project Goals
 * **Fast Inference**: Engineered to achieve the faster voice conversion speeds.
-* **Native Parallel Pipeline**: Implements asynchronous execution splitting to maximize GPU throughput while maintaining strict 0% OOM safety.
+* **Native Parallel Pipeline**: Implements asynchronous execution splitting to maximize GPU throughput while maintaining OOM safety.
 * **Streamlined Workflow**: A lightweight, one-click CLI environment enhanced with seperating-cached data reuse.
 
 ---
