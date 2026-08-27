@@ -375,7 +375,7 @@ class VC(object):
         audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
         if parrel_mode:
           t_points = np.arange(self.t_center, audio.shape[0], self.t_center)
-          if t_points.size > 0:
+          if t_points.size > 0 and t_points[-1] < audio.shape[0] - self.t_center:
             audio_sum_idxs = np.maximum(0, t_points - self.window // 2)
             starts = audio_sum_idxs - self.t_query // 2
             grid = starts[:, None] + np.arange(self.t_query)
@@ -387,7 +387,7 @@ class VC(object):
           for t in range(self.t_center, audio.shape[0], self.t_center):
             audio_sum_idx = max(0, t - self.window // 2)
             local_sum = audio_sum[audio_sum_idx - self.t_query // 2 : audio_sum_idx + self.t_query // 2]
-            if local_sum.size == 0:
+            if local_sum.size < self.t_query:
               continue
             min_index_local = np.argmin(local_sum)
             split_point = (audio_sum_idx - self.t_query // 2) + min_index_local
@@ -435,6 +435,7 @@ class VC(object):
       for t in opt_ts:
         t = t // self.window * self.window
         audio_chunk = np.ascontiguousarray(audio[s:t])
+        
         if if_f0 == 1:
           pitch_chunk = pitch[:, s // self.window : t // self.window]
           pitchf_chunk = pitchf[:, s // self.window : t // self.window]
