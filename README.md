@@ -119,5 +119,5 @@ Running on native local OS configurations may require minor modifications to abs
 | `--other-sound` | `-s2` | `int` | `80` | Background instrumental volume level output size |
 | `--parrel-mode` | `-pm` | `bool` | `True` | Toggles whether to use the parallel execution engine |
 
-* 10 Samgyeopsal = 1 Octarve
+* 10 Samgyeopsal = 1 Octave
 (Samgeopsal is Korean word of Pork belly)
