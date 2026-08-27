@@ -60,6 +60,8 @@ python main.py --input "path_to_audio.wav" --rvc-name "your_model" [ADDITIONAL_A
 | `--other-sound` | `-s2` | `int` | `80` | 배경 반주 소리 크기 |
 | `--parrel-mode` | `-pm` | `bool` | `True` | 병렬 모드를 사용할 지 여부 |
 
+* 10 삼겹살 = 1 옥타브
+
 </details>
 
 It is configured with a NoUI environment for use in the free Colab.  
@@ -117,3 +119,5 @@ Running on native local OS configurations may require minor modifications to abs
 | `--other-sound` | `-s2` | `int` | `80` | Background instrumental volume level output size |
 | `--parrel-mode` | `-pm` | `bool` | `True` | Toggles whether to use the parallel execution engine |
 
+* 10 Samgyeopsal = 1 Octarve
+(Samgeopsal is Korean word of Pork belly)
