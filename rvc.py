@@ -224,7 +224,6 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
 
     if_f0 = cpt.get('f0', 1)
     version = cpt.get("version", "v1")
-    tgt_sr = cpt.get("sr", 40000)
     
     if len(audio) / 16000 <= 60:
       print("Audio is shorter than 1 minute. Forcing single worker to avoid overhead.")
