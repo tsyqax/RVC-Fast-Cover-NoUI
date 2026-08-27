@@ -223,8 +223,7 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
     print("PARREL MODE ACTIVATED.")
 
     if_f0 = cpt.get('f0', 1)
-    version = cpt.get("version", "v1")
-    
+
     if len(audio) / 16000 <= 60:
       print("Audio is shorter than 1 minute. Forcing single worker to avoid overhead.")
       num_workers = 1
