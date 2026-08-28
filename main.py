@@ -253,7 +253,7 @@ if __name__ == '__main__':
     
     try:
       song_id = songs[str(song_name)]
-        exist_check = True
+      exist_check = True
     except Exception as e:
       song_id = str(uuid.uuid4()).split('-')[0]
       print(f"NO ID... or ERR: {e}")
