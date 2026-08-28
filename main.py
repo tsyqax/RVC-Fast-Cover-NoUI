@@ -68,10 +68,10 @@ def str2bool(v):
 
 def sep_song(song_path, song_filename, song_id):
   #demucs_command = ["demucs","-d", "cuda", "-n", "mdx", "--mp3",  "--segment", "16", "--two-stems=vocals", song_path]
-  demucs_command = ["demucs","-d", "cuda", "-n", "htdemucs", "--mp3", "--two-stems=vocals", song_path]
-  #demucs_command = ["demucs","-d", "cuda", "-n", "htdemucs_ft", "--mp3", "--two-stems=vocals", song_path]
+  #demucs_command = ["demucs","-d", "cuda", "-n", "htdemucs", "--mp3", "--two-stems=vocals", song_path]
+  demucs_command = ["demucs","-d", "cuda", "-n", "htdemucs_ft", "--mp3", "--two-stems=vocals", song_path]
   subprocess.run(demucs_command, check=True)
-  sep_path = os.path.join(os.getcwd(), 'separated', 'htdemucs', song_filename) # model name above
+  sep_path = os.path.join(os.getcwd(), 'separated', 'htdemucs_ft', song_filename) # model name above
   os.makedirs(sep_path, exist_ok=True)
   if os.listdir(sep_path):
     instis = os.path.join(sep_path, 'no_vocals.mp3') # accompaniment
@@ -112,7 +112,6 @@ def pitch_song(pitch_vocal_path, pitch_other_path, pitch_vocal, pitch_other, son
       subprocess.run(['mv', pitch_vocal_path, 'to_rvc/rvc_vocal.mp3'], check=True)'''
     subprocess.run(['mv', pitch_vocal_path, 'to_rvc/rvc_vocal.mp3'], check=True) #remove pitch (Do in RVC_infer)
     if sep_mode is True:
-    
       pitout = os.path.join(os.getcwd(), 'output', song_id)
       os.makedirs(pitout, exist_ok=True)
       if pitch_other != 0:
@@ -204,7 +203,7 @@ if __name__ == '__main__':
     yt_mode = False
 
     song_name = '000'
-    song_id = '0002'
+    song_id = 'no_seperate'
 
     pitch_vocal = args.pitch_vocal
     pitch_other = args.pitch_other
@@ -251,37 +250,39 @@ if __name__ == '__main__':
         audio = AudioSegment.from_file(f'input/{song_file}')
         audio.export(f"input/{song_name}.mp3", format="mp3", bitrate="128k")
     song_filename = os.path.basename(args.input).split('.')[0]
+    
     try:
       song_id = songs[str(song_name)]
-      exist_check = True
+        exist_check = True
     except Exception as e:
       song_id = str(uuid.uuid4()).split('-')[0]
-      print('NO ID... or ERR: {e}')
+      print(f"NO ID... or ERR: {e}")
 
     input_path0 = os.path.join(os.getcwd(), 'input')
     os.makedirs(input_path0, exist_ok=True)
     input_path = os.path.join(input_path0, f'{song_name}.mp3')
 
-    if sep_mode is False or exist_check is True:
-      print('NO SEPERATE..')
-    elif sep_mode is True and exist_check is False:
-      sep_song(input_path, song_filename, song_id)
+    if exist_check is True:
+      print('SEPERATE PASS..')
+    elif sep_mode is False:
+      print("SEPERATE FALSE..")
     else:
-      print('NO SEPERATE..')
+      sep_song(input_path, song_filename, song_id)
 
     if pitch_vocal != 0 or pitch_other != 0:
       pitch_path0 = os.path.join(os.getcwd(), 'pitch')
-      if exist_check is True: # to pitch move
-        os.makedirs(pitch_path0, exist_ok=True)
-        subprocess.run(['cp', f'keep/{song_id}/sep_vocal.mp3', 'pitch/pitch_vocal.mp3'], check=True)
-        subprocess.run(['cp', f'keep/{song_id}/sep_inst.mp3', 'pitch/pitch_inst.mp3'], check=True)
-
-      pitch_path1 = os.path.join(pitch_path0, f'pitch_vocal.mp3') # vocal
+      os.makedirs(pitch_path0, exist_ok=True)
+      
       if sep_mode is False:
-        pitch_path2 = pitch_path1
+        subprocess.run(['cp', input_path, "to_rvc/rvc_vocal.mp3"], check=True)
       else:
+        if exist_check is True: # to pitch move
+          os.makedirs(pitch_path0, exist_ok=True)
+          subprocess.run(['cp', f'keep/{song_id}/sep_vocal.mp3', 'pitch/pitch_vocal.mp3'], check=True)
+          subprocess.run(['cp', f'keep/{song_id}/sep_inst.mp3', 'pitch/pitch_inst.mp3'], check=True)
+        pitch_path1 = os.path.join(pitch_path0, f'pitch_vocal.mp3') # vocal
         pitch_path2 = os.path.join(pitch_path0, f'pitch_inst.mp3') # inst
-      pitch_song(pitch_path1, pitch_path2, pitch_vocal, pitch_other, song_id, song_name, sep_mode)
+        pitch_song(pitch_path1, pitch_path2, pitch_vocal, pitch_other, song_id, song_name, sep_mode)
 
     rvc_index_path = ''
     rvc_vocal_path = ''
@@ -305,11 +306,15 @@ if __name__ == '__main__':
     os.makedirs(rvc_input_path0, exist_ok=True)
     rvc_input_path = os.path.join(rvc_input_path0, 'rvc_vocal.mp3')
     pitch_vocal = pitch_vocal * 1.2 # 5 삼겹살
+    
     rvc_song(rvc_index_path, rvc_model_path, args.index_rate, rvc_input_path, rvc_output_path, pitch_vocal, args.rvc_method, 3, args.rms_rate, 0.33, 128, parrel_mode)
     temp_path = os.path.join(os.getcwd(), 'to_merge', 'temp_vocal_standardized.mp3')
     subprocess.run(['ffmpeg', '-i', rvc_output_path, '-codec:a', 'libmp3lame', '-b:a', '192k', '-y', temp_path], check=True)
     subprocess.run(['mv', temp_path, rvc_output_path], check=True)
+    
     output_path2 = merge_song(song_name, song_id, args.rvc_name, vocal_sound, other_sound, sep_mode)
-    songs[song_name] = song_id
-    songsave(songs)
+    
+    if sep_mode is True:
+      songs[song_name] = song_id
+      songsave(songs)
     print(f'DONE!!\nSAVED: {output_path2}')
