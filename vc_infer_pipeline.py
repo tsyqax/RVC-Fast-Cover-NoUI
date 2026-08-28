@@ -378,9 +378,13 @@ class VC(object):
           if t_points.size > 0 and t_points[-1] < audio.shape[0] - self.t_center:
             audio_sum_idxs = np.maximum(0, t_points - self.window // 2)
             starts = audio_sum_idxs - self.t_query // 2
-            grid = starts[:, None] + np.arange(self.t_query)
-            grid = np.clip(grid, 0, audio_sum.shape[0] - 1)
-            min_indices = np.argmin(audio_sum[grid], axis=1)
+            valid_starts = np.clip(starts, 0, audio_sum.shape[0] - self.t_query)
+            
+            # Memory efficient sliding window view without copying data
+            all_windows = np.lib.stride_tricks.sliding_window_view(audio_sum, window_shape=self.t_query)
+            sampled_windows = all_windows[valid_starts]
+            min_indices = np.argmin(sampled_windows, axis=1)
+            
             calculated_ts = (audio_sum_idxs - self.t_query // 2) + min_indices
             opt_ts = calculated_ts.tolist()
         else:
