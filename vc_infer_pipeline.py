@@ -373,29 +373,14 @@ class VC(object):
 
       if audio_pad.shape[0] > self.t_max:
         audio_sum = np.convolve(np.abs(audio), np.ones(self.window), 'valid')
-        if parrel_mode:
-          t_points = np.arange(self.t_center, audio.shape[0], self.t_center)
-          if t_points.size > 0 and t_points[-1] < audio.shape[0] - self.t_center:
-            audio_sum_idxs = np.maximum(0, t_points - self.window // 2)
-            starts = audio_sum_idxs - self.t_query // 2
-            valid_starts = np.clip(starts, 0, audio_sum.shape[0] - self.t_query)
-            
-            # Memory efficient sliding window view without copying data
-            all_windows = np.lib.stride_tricks.sliding_window_view(audio_sum, window_shape=self.t_query)
-            sampled_windows = all_windows[valid_starts]
-            min_indices = np.argmin(sampled_windows, axis=1)
-            
-            calculated_ts = (audio_sum_idxs - self.t_query // 2) + min_indices
-            opt_ts = calculated_ts.tolist()
-        else:
-          for t in range(self.t_center, audio.shape[0], self.t_center):
-            audio_sum_idx = max(0, t - self.window // 2)
-            local_sum = audio_sum[audio_sum_idx - self.t_query // 2 : audio_sum_idx + self.t_query // 2]
-            if local_sum.size < self.t_query:
-              continue
-            min_index_local = np.argmin(local_sum)
-            split_point = (audio_sum_idx - self.t_query // 2) + min_index_local
-            opt_ts.append(split_point)
+        for t in range(self.t_center, audio.shape[0], self.t_center):
+          audio_sum_idx = max(0, t - self.window // 2)
+          local_sum = audio_sum[audio_sum_idx - self.t_query // 2 : audio_sum_idx + self.t_query // 2]
+          if local_sum.size < self.t_query:
+            continue
+          min_index_local = np.argmin(local_sum)
+          split_point = (audio_sum_idx - self.t_query // 2) + min_index_local
+          opt_ts.append(split_point)
     
       s = 0
       audio_opt = []
