@@ -62,6 +62,10 @@ python main.py --input "path_to_audio.wav" --rvc-name "your_model" [ADDITIONAL_A
 
 * 10 삼겹살 = 1 옥타브
 
+---
+## Thanks to
+[AICoverGen](https://github.com/SociallyIneptWeeb/AICoverGen)
+
 </details>
 
 It is configured with a NoUI environment for use in the free Colab.  
@@ -121,3 +125,7 @@ Running on native local OS configurations may require minor modifications to abs
 
 * 10 Samgyeopsal = 1 Octave
 (Samgeopsal is Korean word of Pork belly)
+
+---
+## Thanks to
+[AICoverGen](https://github.com/SociallyIneptWeeb/AICoverGen)
