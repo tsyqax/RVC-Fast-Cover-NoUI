@@ -63,8 +63,7 @@ python main.py --input "path_to_audio.wav" --rvc-name "your_model" [ADDITIONAL_A
 * 10 삼겹살 = 1 옥타브
 
 ---
-## Thanks to
-[AICoverGen](https://github.com/SociallyIneptWeeb/AICoverGen)
+### Thanks to [AICoverGen](https://github.com/SociallyIneptWeeb/AICoverGen)
 
 </details>
 
@@ -127,5 +126,4 @@ Running on native local OS configurations may require minor modifications to abs
 (Samgeopsal is Korean word of Pork belly)
 
 ---
-## Thanks to
-[AICoverGen](https://github.com/SociallyIneptWeeb/AICoverGen)
+### Thanks to [AICoverGen](https://github.com/SociallyIneptWeeb/AICoverGen)
