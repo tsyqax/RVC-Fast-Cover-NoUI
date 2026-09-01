@@ -1,6 +1,7 @@
+#model_down.py
 import os
-import requests
 from pathlib import Path
+from huggingface_hub import hf_hub_download, snapshot_download
 
 def decrypt_text(encoded_str, shift=-3):
     lower_from = "abcdefghijklmnopqrstuvwxyz"
@@ -10,31 +11,35 @@ def decrypt_text(encoded_str, shift=-3):
     tab = str.maketrans(lower_from + upper_from, lower_to + upper_to)
     return encoded_str.translate(tab)
 
-def dl_model(link, model_name, dir_name):
-    actual_url = f"{link}{model_name}"
-    with requests.get(actual_url) as r:
-        r.raise_for_status()
-        with open(dir_name / model_name, 'wb') as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
-
-os.makedirs('uvrs', exist_ok=True)
-os.makedirs('infers', exist_ok=True)
+os.makedirs('assets/hubert_base', exist_ok=True)
+os.makedirs('assets/rmvpe', exist_ok=True)
 
 print('MODEL DOWNLOAD STARTED...')
 
-encoded_base_url = "kwwsv://kxjjlqjidfh.fr/om1995/YrlfhFrqyhuvlrqZheXL/uhvroyh/pdlq/"
-clear_base_url = decrypt_text(encoded_base_url)
+encoded_repo = "om1995/YrlfhFrqyhuvlrqZheXL"
+clear_repo = decrypt_text(encoded_repo)
 
-encoded_kh_base_url = "kwwsv://kxjjlqjidfh.fr/nlqgdkha/yrlfh-frqyhuvlrq/uhvroyh/pdlq/"
-clear_kh_base_url = decrypt_text(encoded_kh_base_url)
+encoded_revision = "pdlq"
+encoded_pattern = "kxehuw_edvh/*"
 
-clear_hubert = decrypt_text("kxehuw_edvh.sw")
-clear_rmvpe = decrypt_text("upysh.sw")
-clear_fcpe = decrypt_text("ifsh.sw")
+clear_revision = decrypt_text(encoded_revision)
+clear_pattern = decrypt_text(encoded_pattern)
 
-dl_model(clear_base_url, clear_hubert, Path('infers'))
-dl_model(clear_base_url, clear_rmvpe, Path('infers'))
-#dl_model(clear_kh_base_url, clear_fcpe, Path('infers'))
+encoded_filename = "upysh.sw"
+clear_filename = decrypt_text(encoded_filename)
+
+snapshot_download(
+    repo_id=clear_repo,
+    revision=clear_revision,
+    allow_patterns=clear_pattern,
+    local_dir="assets"
+)
+
+hf_hub_download(
+    repo_id=clear_repo,
+    filename=clear_filename,
+    revision=clear_revision,
+    local_dir="assets/rmvpe"
+)
 
 print('MODEL DONE!')
