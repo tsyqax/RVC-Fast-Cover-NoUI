@@ -213,7 +213,7 @@ def get_vc(device, is_half, config, model_path):
     vc = Pipeline(tgt_sr, config)
     return cpt, version, net_g, tgt_sr, vc
 
-def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_path, hubert_model_path=os.path.join(os.getcwd(), 'infers', 'hubert_base.pt'), parrel_mode=False):
+def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_path, parrel_mode=False):
   if f0_method not in ['rmvpe', 'fcpe']:
     print("Warning: f0 method is not supported. Using 'rmvpe'.")
     f0_method = 'rmvpe'
@@ -238,9 +238,15 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
         model_size_mb = 0
         for param_name, param_tensor in cpt["weight"].items():
           model_size_mb += param_tensor.numel() * param_tensor.element_size() / 1024 / 1024
-        model_size_mb += os.path.getsize(hubert_model_path) / 1024 / 1024
         
-        vram_buffer_mb = 512
+        hubert_size_mb = 0
+        for param in hubert_model.parameters():
+          hubert_size_mb += param.numel() * param.element_size() / 1024 / 1024
+
+        model_size_mb += hubert_size_mb
+        #model_size_mb += os.path.getsize(hubert_model_path) / 1024 / 1024
+        
+        vram_buffer_mb = 768
         num_workers = int((total_vram - vram_buffer_mb) / model_size_mb)
         num_workers = max(1, num_workers)
         num_workers = min(num_workers, cpu_count())
