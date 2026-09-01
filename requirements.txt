@@ -12,7 +12,7 @@ pytubefix
 torch==2.6.0+cu118
 ffmpeg-python>=0.2.0
 demucs
-torchvision==0.16.2+cu118
+torchvision
 torchaudio==2.6.0+cu118
 --extra-index-url https://download.pytorch.org/whl/cu118
 transformers
