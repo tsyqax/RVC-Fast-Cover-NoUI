@@ -9,6 +9,7 @@ from scipy.io import wavfile
 import numpy as np
 import os
 import sys
+import multiprocessing as mp
 
 now_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(now_dir)
@@ -219,60 +220,35 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
   audio = load_audio(input_path, 16000)
   times = [0, 0, 0]
 
-  if parrel_mode:
-    print("PARREL MODE ACTIVATED.")
 
-    if_f0 = cpt.get('f0', 1)
-
-    if len(audio) / 16000 <= 60:
-      print("Audio is shorter than 1 minute. Forcing single worker to avoid overhead.")
-      num_workers = 1
-    else:
-      try:
-        device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
-        prop = torch.cuda.get_device_properties(device)
-        total_vram = prop.total_memory / 1024 / 1024 # MB
+  print("STANDARD MODE ACTIVATED.")
+  try:  
+    cpu_cores = mp.cpu_count()
+    device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
         
-        model_size_mb = 0
-        for param_name, param_tensor in cpt["weight"].items():
-          model_size_mb += param_tensor.numel() * param_tensor.element_size() / 1024 / 1024
+    print(f"[SYSTEM] Detected CPU Cores: {cpu_cores}")
+
+    if device.type == 'cuda':
+      prop = torch.cuda.get_device_properties(device)
+      total_vram = prop.total_memory / 1024 / 1024  # MB
+      gpu_name = prop.name
+            
+      model_size_mb = 0
+      for param_name, param_tensor in cpt["weight"].items():
+        model_size_mb += param_tensor.numel() * param_tensor.element_size() / 1024 / 1024
         model_size_mb += os.path.getsize(hubert_model_path) / 1024 / 1024
-        
-        vram_buffer_mb = 512
-        num_workers = int((total_vram - vram_buffer_mb) / model_size_mb)
-        num_workers = max(1, num_workers)
-        num_workers = min(num_workers, cpu_count())
-        print(f"Optimal number of workers: {num_workers} (Total VRAM: {total_vram:.2f}MB, Estimated Model size: {model_size_mb:.2f}MB)")
-      except Exception as e:
-        print(f"Could not determine VRAM. Falling back to CPU count. Error: {e}")
-        num_workers = cpu_count()
-
-    chunk_length = len(audio) // num_workers
-    chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_workers)]
-    if len(audio) % num_workers != 0:
-      chunks[-1] = np.concatenate((chunks[-1], audio[num_workers * chunk_length:]))
-
-    args_list = [
-      (chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, chunk.shape[0] // vc.window, True)
-      for chunk in chunks
-    ]
-
-    def run_parallel_thread(idx):
-      a_chunk, ip, tm, pc, f0_m, idx_p, idx_r, i_f0, fr, t_sr, r_mix, ver, prot, c_hop, p_l, p_mode = args_list[idx]
-      return vc.pipeline(
-        hubert_model, net_g, 0, a_chunk, ip, tm, pc, f0_m, idx_p, idx_r, 
-        i_f0, fr, t_sr, 0, r_mix, ver, prot, c_hop, p_l, parrel_mode=p_mode
-      )
-
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-      processed_chunks = list(executor.map(run_parallel_thread, range(num_workers)))
-      
-    audio_opt = np.concatenate(processed_chunks)
-    
-  else:
-    if_f0 = cpt.get('f0', 1)
-    p_len = audio.shape[0] // vc.window 
-    audio_opt = vc.pipeline(hubert_model, net_g, 0, audio, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length, p_len)
+            
+      print(f"Detected GPU: {gpu_name}")
+      print(f"Total VRAM: {total_vram:.2f} MB, Estimated Total Model Size: {model_size_mb:.2f} MB")
+    else:
+      print("[SYSTEM] No CUDA Device found. Running on CPU mode.")
+            
+    except Exception as e:
+        print(f"[SYSTEM] Failed to retrieve hardware specs.")
+  
+  if_f0 = cpt.get('f0', 1)
+  p_len = audio.shape[0] // vc.window 
+  audio_opt = vc.pipeline(hubert_model, net_g, 0, audio, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length, p_len)
 
   wavfile.write(output_path, tgt_sr, audio_opt)
 
