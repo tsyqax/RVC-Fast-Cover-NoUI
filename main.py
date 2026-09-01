@@ -15,7 +15,10 @@ from pytubefix import YouTube
 from pytubefix.cli import on_progress
 from concurrent.futures import ThreadPoolExecutor
 
-from rvc import Config, load_hubert, get_vc, rvc_infer
+from rvc import Config, get_vc, rvc_infer
+from infer.hubert import load_hubert_model
+
+os.environ["rmvpe_root"] = os.path.join(os.getcwd(), "assets", "rmvpe")
 
 try:
     torch.multiprocessing.set_start_method('spawn', force=True)
@@ -131,7 +134,14 @@ def rvc_song(rvc_index_path, rvc_model_path, index_rate, input_path, output_path
   device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
   config = Config(device, True)
   
-  hubert_model = load_hubert(device, config.is_half, os.path.join(os.getcwd(), 'infers', 'hubert_base.pt'))
+  if parrel_mode:
+    os.environ["RVC_CUDA_GRAPH"] = "0"
+  else:
+    #os.environ["RVC_CUDA_GRAPH"] = "1"
+    os.environ["RVC_CUDA_GRAPH"] = "0"
+  
+  #hubert_model = load_hubert(device, config.is_half, os.path.join(os.getcwd(), 'infers', 'hubert_base.pt'))
+  hubert_model = load_hubert_model(device, is_half=config.is_half) 
   cpt, version, net_g, tgt_sr, vc = get_vc(device, config.is_half, config, rvc_model_path)
 
   rvc_infer(rvc_index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_path, parrel_mode=parrel_mode)
