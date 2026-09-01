@@ -1,17 +1,20 @@
 librosa==0.9.1
 numpy==1.23.5
 pydub==0.25.1
-fairseq @ https://github.com/tsyqax/RVC-Fast-Cover-NoUI/raw/main/fairseq-0.12.2-cp310-cp310-linux_x86_64.whl # fairseq==0.12.2
+#fairseq @ https://github.com/tsyqax/RVC-Fast-Cover-NoUI/raw/main/fairseq-0.12.2-cp310-cp310-linux_x86_64.whl # fairseq==0.12.2
 scipy==1.11.1
 faiss-cpu==1.7.3
 praat-parselmouth>=0.4.2
 pyworld==0.3.4
-torchcrepe==0.0.20
+torchcrepe
 torchfcpe
 pytubefix
-torch==2.1.2+cu118
+torch==2.6.0+cu118
 ffmpeg-python>=0.2.0
 demucs
-torchvision==0.16.2+cu118
-torchaudio==2.1.2+cu118
+torchvision
+torchaudio==2.6.0+cu118
 --extra-index-url https://download.pytorch.org/whl/cu118
+transformers
+huggingface_hub
+soxr

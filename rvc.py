@@ -1,10 +1,11 @@
+#rvc.py
 from multiprocessing import cpu_count, Pool, current_process
 from pathlib import Path
 import traceback
 
 import torch
+#from fairseq import checkpoint_utils
 from concurrent.futures import ThreadPoolExecutor
-from fairseq import checkpoint_utils
 from scipy.io import wavfile
 import numpy as np
 import os
@@ -12,14 +13,14 @@ import sys
 
 now_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(now_dir)
-from infer_pack.models import (
+from infer.module.models import (
     SynthesizerTrnMs256NSFsid,
     SynthesizerTrnMs256NSFsid_nono,
     SynthesizerTrnMs768NSFsid,
     SynthesizerTrnMs768NSFsid_nono,
 )
 from my_utils import load_audio
-from vc_infer_pipeline import VC
+from infer.vc.pipeline import Pipeline
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -164,6 +165,7 @@ def worker_initializer(model_path, hubert_path, device, is_half):
         traceback.print_exc()
         raise
 
+'''
 def load_hubert(device, is_half, model_path):
     models, _, task = checkpoint_utils.load_model_ensemble_and_task([model_path], suffix='')
     hubert = models[0]
@@ -176,7 +178,7 @@ def load_hubert(device, is_half, model_path):
 
     hubert.eval()
     return hubert
-
+'''
 
 def get_vc(device, is_half, config, model_path):
     cpt = torch.load(model_path, map_location='cpu')
@@ -208,10 +210,10 @@ def get_vc(device, is_half, config, model_path):
     else:
         net_g = net_g.float()
 
-    vc = VC(tgt_sr, config)
+    vc = Pipeline(tgt_sr, config)
     return cpt, version, net_g, tgt_sr, vc
 
-def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_path, hubert_model_path=os.path.join(os.getcwd(), 'infers', 'hubert_base.pt'), parrel_mode=False):
+def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_path, parrel_mode=False):
   if f0_method not in ['rmvpe', 'fcpe']:
     print("Warning: f0 method is not supported. Using 'rmvpe'.")
     f0_method = 'rmvpe'
@@ -236,9 +238,15 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
         model_size_mb = 0
         for param_name, param_tensor in cpt["weight"].items():
           model_size_mb += param_tensor.numel() * param_tensor.element_size() / 1024 / 1024
-        model_size_mb += os.path.getsize(hubert_model_path) / 1024 / 1024
         
-        vram_buffer_mb = 512
+        hubert_size_mb = 0
+        for param in hubert_model.parameters():
+          hubert_size_mb += param.numel() * param.element_size() / 1024 / 1024
+
+        model_size_mb += hubert_size_mb
+        #model_size_mb += os.path.getsize(hubert_model_path) / 1024 / 1024
+        
+        vram_buffer_mb = 768
         num_workers = int((total_vram - vram_buffer_mb) / model_size_mb)
         num_workers = max(1, num_workers)
         num_workers = min(num_workers, cpu_count())
@@ -253,16 +261,13 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
       chunks[-1] = np.concatenate((chunks[-1], audio[num_workers * chunk_length:]))
 
     args_list = [
-      (chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, chunk.shape[0] // vc.window, True)
+      (hubert_model, net_g, 0, chunk, times, pitch_change, f0_method, index_path, index_rate, if_f0, tgt_sr, 0, rms_mix_rate, version, protect)
       for chunk in chunks
     ]
 
     def run_parallel_thread(idx):
-      a_chunk, ip, tm, pc, f0_m, idx_p, idx_r, i_f0, fr, t_sr, r_mix, ver, prot, c_hop, p_l, p_mode = args_list[idx]
-      return vc.pipeline(
-        hubert_model, net_g, 0, a_chunk, ip, tm, pc, f0_m, idx_p, idx_r, 
-        i_f0, fr, t_sr, 0, r_mix, ver, prot, c_hop, p_l, parrel_mode=p_mode
-      )
+      current_args = args_list[idx]
+      return vc.pipeline(*current_args)
 
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
       processed_chunks = list(executor.map(run_parallel_thread, range(num_workers)))
@@ -272,7 +277,7 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
   else:
     if_f0 = cpt.get('f0', 1)
     p_len = audio.shape[0] // vc.window 
-    audio_opt = vc.pipeline(hubert_model, net_g, 0, audio, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length, p_len)
+    audio_opt = vc.pipeline(hubert_model, net_g, 0, audio, times, pitch_change, f0_method, index_path, index_rate, if_f0, tgt_sr, 0, rms_mix_rate, version, protect)
 
   wavfile.write(output_path, tgt_sr, audio_opt)
 
