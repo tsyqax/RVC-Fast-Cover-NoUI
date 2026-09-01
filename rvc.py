@@ -1,3 +1,4 @@
+#rvc.py
 from multiprocessing import cpu_count, Pool, current_process
 from pathlib import Path
 import traceback
@@ -12,14 +13,14 @@ import sys
 
 now_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(now_dir)
-from infer_pack.models import (
+from infer.module.models import (
     SynthesizerTrnMs256NSFsid,
     SynthesizerTrnMs256NSFsid_nono,
     SynthesizerTrnMs768NSFsid,
     SynthesizerTrnMs768NSFsid_nono,
 )
 from my_utils import load_audio
-from vc_infer_pipeline import VC
+from infer.vc.pipeline import Pipeline
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -208,7 +209,7 @@ def get_vc(device, is_half, config, model_path):
     else:
         net_g = net_g.float()
 
-    vc = VC(tgt_sr, config)
+    vc = Pipeline(tgt_sr, config)
     return cpt, version, net_g, tgt_sr, vc
 
 def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_path, hubert_model_path=os.path.join(os.getcwd(), 'infers', 'hubert_base.pt'), parrel_mode=False):
@@ -253,16 +254,13 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
       chunks[-1] = np.concatenate((chunks[-1], audio[num_workers * chunk_length:]))
 
     args_list = [
-      (chunk, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, rms_mix_rate, version, protect, crepe_hop_length, chunk.shape[0] // vc.window, True)
+      (hubert_model, net_g, 0, chunk, times, pitch_change, f0_method, index_path, index_rate, if_f0, tgt_sr, 0, rms_mix_rate, version, protect)
       for chunk in chunks
     ]
 
     def run_parallel_thread(idx):
-      a_chunk, ip, tm, pc, f0_m, idx_p, idx_r, i_f0, fr, t_sr, r_mix, ver, prot, c_hop, p_l, p_mode = args_list[idx]
-      return vc.pipeline(
-        hubert_model, net_g, 0, a_chunk, ip, tm, pc, f0_m, idx_p, idx_r, 
-        i_f0, fr, t_sr, 0, r_mix, ver, prot, c_hop, p_l, parrel_mode=p_mode
-      )
+      current_args = args_list[idx]
+      return vc.pipeline(*current_args)
 
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
       processed_chunks = list(executor.map(run_parallel_thread, range(num_workers)))
@@ -272,7 +270,7 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
   else:
     if_f0 = cpt.get('f0', 1)
     p_len = audio.shape[0] // vc.window 
-    audio_opt = vc.pipeline(hubert_model, net_g, 0, audio, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length, p_len)
+    audio_opt = vc.pipeline(hubert_model, net_g, 0, audio, times, pitch_change, f0_method, index_path, index_rate, if_f0, tgt_sr, 0, rms_mix_rate, version, protect)
 
   wavfile.write(output_path, tgt_sr, audio_opt)
 
