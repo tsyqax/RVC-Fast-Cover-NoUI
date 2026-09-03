@@ -46,7 +46,7 @@ hf_hub_download(
 
 encoded_uvr_repo = "Srolwuhhv/XYU_uhvrxufhv"
 clear_uvr_repo = decrypt_text(encoded_uvr_repo)
-"
+
 encoded_voc_ft = "prghov/PGAQhw/XYU-PGA-QHW-Yrf_IW.rqqa"
 encoded_karaoke2 = "prghov/PGAQhw/XYU_PGAQHW_NDUD_2.rqqa"
 
