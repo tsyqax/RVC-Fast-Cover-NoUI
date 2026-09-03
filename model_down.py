@@ -17,24 +17,6 @@ os.makedirs('assets/mdx', exist_ok=True)
 
 print('MODEL DOWNLOAD STARTED...')
 
-import os
-from pathlib import Path
-from huggingface_hub import hf_hub_download, snapshot_download
-
-def decrypt_text(encoded_str, shift=-3):
-    lower_from = "abcdefghijklmnopqrstuvwxyz"
-    lower_to   = "xyzabcdefghijklmnopqrstuvw"
-    upper_from = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    upper_to   = "XYZABCDEFGHIJKLMNOPQRSTUVW"
-    tab = str.maketrans(lower_from + upper_from, lower_to + upper_to)
-    return encoded_str.translate(tab)
-
-os.makedirs('assets/hubert_base', exist_ok=True)
-os.makedirs('assets/rmvpe', exist_ok=True)
-os.makedirs('assets/mdx', exist_ok=True)
-
-print('MODEL DOWNLOAD STARTED...')
-
 
 encoded_repo = "om1995/YrlfhFrqyhuvlrqZheXL"
 clear_repo = decrypt_text(encoded_repo)
