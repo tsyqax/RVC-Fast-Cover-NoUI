@@ -18,4 +18,4 @@ transformers
 huggingface_hub
 soxr
 soundfile
-onnxruntime-gpu
+audio-separator[gpu]
