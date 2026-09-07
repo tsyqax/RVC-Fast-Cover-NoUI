@@ -120,30 +120,23 @@ def sep_song_v2(song_path, vocal_output_path, inst_output_path, chorus_out_path,
   separator = Separator(output_dir=sep_path, output_format="MP3", model_file_dir=os.path.join(os.getcwd(), "assets", "mdx", "models", "MDXNet"), log_level=0)
   
   # 1st separate
-  separator.output_names = {"Vocals": "sep_vocal_mixed", "Instrumental": "sep_inst"}
+  #separator.output_names = {"Vocals": "sep_vocal_mixed", "Instrumental": "sep_inst"}
   separator.load_model(model_filename=f"{MAIN_SEP_MODEL}.onnx")
-  separator.separate(song_path)
+  vocal_mixed, instis = separator.separate(song_path)
   
-  instis = os.path.join(sep_path, "sep_inst.mp3")
-  vocal_mixed = os.path.join(sep_path, "sep_vocal_mixed.mp3")
-
-  shutil.copy2(instis, keep_dir)
-  shutil.copy2(vocal_mixed, keep_dir)
+  shutil.copy2(instis, os.path.join(keep_dir, "sep_inst.mp3"))
+  shutil.copy2(vocal_mixed, os.path.join(keep_dir, "sep_vocal_mixed.mp3"))
   pitch_song_new(instis, inst_output_path, pitch_other, os.path.join(final_output_dir, f"{song_filename}_Inst.mp3"))
   
   if chorus_mode == 0:
     shutil.copy2(vocal_mixed, vocal_output_path)
 
   # 2st separate
-  separator.output_names = {"Vocals": "sep_vocal", "Instrumental": "sep_chorus"}
+  #separator.output_names = {"Vocals": "sep_vocal", "Instrumental": "sep_chorus"}
   separator.load_model(model_filename=f"{CHORUS_SEP_MODEL}.onnx")
-  separator.separate(vocal_mixed)
-
-  main_vocal = os.path.join(sep_path, "sep_vocal.mp3")
-  chorus_sound = os.path.join(sep_path, "sep_chorus.mp3")
-  
-  shutil.copy2(main_vocal, keep_dir)
-  shutil.copy2(chorus_sound, keep_dir)
+  main_vocal, chorus_sound = separator.separate(vocal_mixed)
+  shutil.copy2(main_vocal, os.path.join(keep_dir, "sep_vocal.mp3"))
+  shutil.copy2(chorus_sound, os.path.join(keep_dir, "sep_chorus.mp3"))
 
   if chorus_mode >= 2:
     shutil.move(chorus_sound, chorus_out_path) # merge
