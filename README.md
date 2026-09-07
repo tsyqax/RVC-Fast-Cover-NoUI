@@ -77,7 +77,7 @@ While some non-essential features have been slightly streamlined, the core focus
 
 ## How to Use
 ### Google Colab Notebooks
-You can run the entire pipeline directly via these links: **[[한국어]](https://colab.research.google.com/drive/10iTH1SGxQK2TCDfzUpgke1UFBUJHGCnk)** **[[EN]](https://colab.research.google.com/drive/1ki84JkAFXUDIDmj2YHWRX52nhuJ5VOVO)**  
+**[[한국어]](https://colab.research.google.com/drive/10iTH1SGxQK2TCDfzUpgke1UFBUJHGCnk)** **[[EN]](https://colab.research.google.com/drive/1ki84JkAFXUDIDmj2YHWRX52nhuJ5VOVO)**  
 
 *⚠️ Warning: When using YouTube Mode, the Colab environment is highly susceptible to temporary IP rate limits or blocklists. Storing source assets directly via local file uploads or Google Drive paths is strongly recommended.*
 
