@@ -1,7 +1,7 @@
 #model_down.py
 import os
 from pathlib import Path
-from huggingface_hub import hf_hub_download, snapshot_download
+from huggingface_hub import hf_hub_download, snapshot_download, logging, disable_progress_bars
 
 def decrypt_text(encoded_str, shift=-3):
     lower_from = "abcdefghijklmnopqrstuvwxyz"
@@ -16,7 +16,8 @@ os.makedirs('assets/rmvpe', exist_ok=True)
 os.makedirs('assets/mdx', exist_ok=True)
 
 print('MODEL DOWNLOAD STARTED...')
-
+logging.set_verbosity_warning()
+disable_progress_bars()
 
 encoded_repo = "om1995/YrlfhFrqyhuvlrqZheXL"
 clear_repo = decrypt_text(encoded_repo)
