@@ -120,8 +120,9 @@ def sep_song_v2(song_path, vocal_output_path, inst_output_path, chorus_out_path,
   separator = Separator(output_dir=sep_path, output_format="MP3", model_file_dir=os.path.join(os.getcwd(), "assets", "mdx", "models", "MDXNet"))
   
   # 1st separate
-  separator.load_model(f"{MAIN_SEP_MODEL}.onnx")
-  separator.separate(song_path, output_names={"Vocals": "sep_vocal_mixed", "Instrumental": "sep_inst"}, denoise=False)
+  separator.output_names = {"Vocals": "sep_vocal_mixed", "Instrumental": "sep_inst"}
+  separator.load_model(model_filename=f"{MAIN_SEP_MODEL}.onnx")
+  separator.separate(song_path)
   
   instis = os.path.join(sep_path, "sep_inst.mp3")
   vocal_mixed = os.path.join(sep_path, "sep_vocal_mixed.mp3")
@@ -134,8 +135,9 @@ def sep_song_v2(song_path, vocal_output_path, inst_output_path, chorus_out_path,
     shutil.copy2(vocal_mixed, vocal_output_path)
 
   # 2st separate
-  separator.load_model(f"{CHORUS_SEP_MODEL}.onnx")
-  separator.separate(vocal_mixed, output_names={"Vocals": "sep_vocal", "Instrumental": "sep_chorus"})
+  separator.output_names = {"Vocals": "sep_vocal", "Instrumental": "sep_chorus"}
+  separator.load_model(model_filename=f"{CHORUS_SEP_MODEL}.onnx")
+  separator.separate(vocal_mixed)
 
   main_vocal = os.path.join(sep_path, "sep_vocal.mp3")
   chorus_sound = os.path.join(sep_path, "sep_chorus.mp3")
