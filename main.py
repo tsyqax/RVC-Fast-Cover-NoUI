@@ -117,7 +117,7 @@ def sep_song_v2(song_path, vocal_output_path, inst_output_path, chorus_out_path,
   sep_path = os.path.join(os.getcwd(), 'separated', 'uvr5_mdx')
   os.makedirs(sep_path, exist_ok=True)
   
-  separator = Separator(output_dir=sep_path, output_format="MP3", model_file_dir=os.path.join("assets", "mdx", "models", "MDXNet"))
+  separator = Separator(output_dir=sep_path, output_format="MP3", model_file_dir=os.path.join(os.getcwd(), "assets", "mdx", "models", "MDXNet"))
   
   # 1st separate
   separator.load_model(f"{MAIN_SEP_MODEL}.onnx")
