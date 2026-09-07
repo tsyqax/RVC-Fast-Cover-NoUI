@@ -1,28 +1,26 @@
-# rvc.py
-
+#rvc.py
 from multiprocessing import cpu_count, Pool, current_process
 from pathlib import Path
 import traceback
 
 import torch
+#from fairseq import checkpoint_utils
 from concurrent.futures import ThreadPoolExecutor
-from fairseq import checkpoint_utils
 from scipy.io import wavfile
 import numpy as np
 import os
 import sys
-import multiprocessing as mp
 
 now_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(now_dir)
-from infer_pack.models import (
+from infer.module.models import (
     SynthesizerTrnMs256NSFsid,
     SynthesizerTrnMs256NSFsid_nono,
     SynthesizerTrnMs768NSFsid,
     SynthesizerTrnMs768NSFsid_nono,
 )
 from my_utils import load_audio
-from vc_infer_pipeline import VC
+from infer.vc.pipeline import Pipeline
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -167,6 +165,7 @@ def worker_initializer(model_path, hubert_path, device, is_half):
         traceback.print_exc()
         raise
 
+'''
 def load_hubert(device, is_half, model_path):
     models, _, task = checkpoint_utils.load_model_ensemble_and_task([model_path], suffix='')
     hubert = models[0]
@@ -179,7 +178,7 @@ def load_hubert(device, is_half, model_path):
 
     hubert.eval()
     return hubert
-
+'''
 
 def get_vc(device, is_half, config, model_path):
     cpt = torch.load(model_path, map_location='cpu')
@@ -211,44 +210,22 @@ def get_vc(device, is_half, config, model_path):
     else:
         net_g = net_g.float()
 
-    vc = VC(tgt_sr, config)
+    vc = Pipeline(tgt_sr, config)
     return cpt, version, net_g, tgt_sr, vc
 
-def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_path, hubert_model_path=os.path.join(os.getcwd(), 'infers', 'hubert_base.pt'), parrel_mode=False):
+def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_method, cpt, version, net_g, filter_radius, tgt_sr, rms_mix_rate, protect, crepe_hop_length, vc, hubert_model, rvc_model_path, parrel_mode=False):
   if f0_method not in ['rmvpe', 'fcpe']:
     print("Warning: f0 method is not supported. Using 'rmvpe'.")
     f0_method = 'rmvpe'
+  
+  print(f"[INFER] Starting inference using model: {os.path.basename(rvc_model_path)}")
+  print(f" > Target: {os.path.basename(output_path)} | Pitch: {pitch_change:+} sgs | F0: {f0_method} (Idx: {index_rate}) | SR: {tgt_sr}Hz")
 
   audio = load_audio(input_path, 16000)
   times = [0, 0, 0]
-
-  print("STANDARD MODE ACTIVATED.")
-  try:  
-    cpu_cores = mp.cpu_count()
-    device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
-
-    print(f"Detected CPU Cores: {cpu_cores}")
-
-    if device.type == 'cuda':
-      prop = torch.cuda.get_device_properties(device)
-      total_vram = prop.total_memory / 1024 / 1024  # MB
-      gpu_name = prop.name
-
-      model_size_mb = 0
-      for param_name, param_tensor in cpt["weight"].items():
-        model_size_mb += param_tensor.numel() * param_tensor.element_size() / 1024 / 1024
-        model_size_mb += os.path.getsize(hubert_model_path) / 1024 / 1024
-
-      print(f"Detected GPU: {gpu_name}")
-      print(f"Total VRAM: {total_vram:.2f} MB, Estimated Total Model Size: {model_size_mb:.2f} MB")
-    else:
-      print("No CUDA Device found. Running on CPU mode.")
-
-    except Exception as e:
-      print(f"Failed to retrieve hardware specs.")
   
   if_f0 = cpt.get('f0', 1)
   p_len = audio.shape[0] // vc.window 
-  audio_opt = vc.pipeline(hubert_model, net_g, 0, audio, input_path, times, pitch_change, f0_method, index_path, index_rate, if_f0, filter_radius, tgt_sr, 0, rms_mix_rate, version, protect, crepe_hop_length, p_len)
+  audio_opt = vc.pipeline(hubert_model, net_g, 0, audio, times, pitch_change, f0_method, index_path, index_rate, if_f0, tgt_sr, 0, rms_mix_rate, version, protect)
 
   wavfile.write(output_path, tgt_sr, audio_opt)
