@@ -111,19 +111,26 @@ def switchUVR(unload_model_name, load_model_name):
 # output format = output/ song_id / song_name (rvc model).mp3
 
 def sep_song_v2(song_path, vocal_output_path, inst_output_path, chorus_out_path, keep_dir, final_output_dir, song_filename, pitch_other, chorus_mode=0):
+  print(f"[SEP] Separation started, Mode: {chorus_mode}")
   MAIN_SEP_MODEL = "UVR-MDX-NET-Voc_FT"
   CHORUS_SEP_MODEL = "UVR_MDXNET_KARA_2"  
 
   sep_path = os.path.join(os.getcwd(), 'separated', 'uvr5_mdx')
   os.makedirs(sep_path, exist_ok=True)
   
-  separator = Separator(output_dir=sep_path, output_format="MP3", model_file_dir=os.path.join(os.getcwd(), "assets", "mdx", "models", "MDXNet"), log_level=0)
+  separator = Separator(output_dir=sep_path, output_format="MP3", model_file_dir=os.path.join(os.getcwd(), "assets", "mdx", "models", "MDXNet"), log_level=30)
   
   # 1st separate
   #separator.output_names = {"Vocals": "sep_vocal_mixed", "Instrumental": "sep_inst"}
   separator.load_model(model_filename=f"{MAIN_SEP_MODEL}.onnx")
   vocal_mixed, instis = separator.separate(song_path)
   
+  vocal_mixed = os.path.join(sep_path, vocal_mixed)
+  instis = os.path.join(sep_path, instis)
+  
+  print(f"vocal_mixed: {vocal_mixed}")
+  print(f"instis: {instis}")
+
   shutil.copy2(instis, os.path.join(keep_dir, "sep_inst.mp3"))
   shutil.copy2(vocal_mixed, os.path.join(keep_dir, "sep_vocal_mixed.mp3"))
   pitch_song_new(instis, inst_output_path, pitch_other, os.path.join(final_output_dir, f"{song_filename}_Inst.mp3"))
@@ -135,6 +142,14 @@ def sep_song_v2(song_path, vocal_output_path, inst_output_path, chorus_out_path,
   #separator.output_names = {"Vocals": "sep_vocal", "Instrumental": "sep_chorus"}
   separator.load_model(model_filename=f"{CHORUS_SEP_MODEL}.onnx")
   main_vocal, chorus_sound = separator.separate(vocal_mixed)
+  os.remove(vocal_mixed)
+  
+  main_vocal = os.path.join(sep_path, main_vocal)
+  chorus_sound = os.path.join(sep_path, chorus_sound)
+  
+  print(f"main_vocal: {main_vocal}")
+  print(f"chorus_sound: {chorus_sound}")
+  
   shutil.copy2(main_vocal, os.path.join(keep_dir, "sep_vocal.mp3"))
   shutil.copy2(chorus_sound, os.path.join(keep_dir, "sep_chorus.mp3"))
 
@@ -144,18 +159,18 @@ def sep_song_v2(song_path, vocal_output_path, inst_output_path, chorus_out_path,
   elif chorus_mode == 1:
     shutil.move(main_vocal, vocal_output_path)
     os.remove(chorus_sound)
-  
-  os.remove(vocal_mixed)
-  
+  else:
+    os.remove(chorus_sound)
+ 
   songs[song_name] = song_id
   songsave(songs)
-  print(f"[SEP] Separation is Done, Mode: {chorus_mode}")
+  print(f"[SEP] Separation is Done.")
 
 def pitch_song_new(input_pitch, output_pitch, pitch_sgs, final_output):
   # 삼겹살 * 1.2 = 반키 # (samgyeopsal * 1.2 = semiton)
   # 10 삼겹살 = 1 옥타브 # (10 samgyeopsal = 1 octarve)
   
-  print("[PITCH] pitch start")
+  print("[PITCH] Pitch start")
   
   if pitch_sgs == 0:
     shutil.copy2(input_pitch, output_pitch)
@@ -166,7 +181,7 @@ def pitch_song_new(input_pitch, output_pitch, pitch_sgs, final_output):
   try:
     pitch_factor = 2 ** (pitch_sgs / 10)
     filter_string = f"asetrate=44100*{pitch_factor},atempo=1/{pitch_factor}"
-    pitch_command = ["ffmpeg", "-hide_banner", "-i", input_pitch, "-filter:a", filter_string, "-b:a", "192k", "-y", output_pitch]
+    pitch_command = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-i", input_pitch, "-filter:a", filter_string, "-b:a", "192k", "-y", output_pitch]
     subprocess.run(pitch_command, check=True)
     shutil.copy2(output_pitch, final_output)
     print(f"[PITCH] Changing to {pitch_sgs} sgs is done.")
@@ -199,13 +214,13 @@ def new_merge_song(vocal_path, inst_path, chorus_path, output_path, vocal_sound,
     if sep_mode is True and other_sound > 0:
       if use_chorus:
         filter_str = f"[0:a]volume={v_vol}[v]; [1:a]volume={i_vol}[i]; [2:a]volume={i_vol}[c]; [v][i][c]amix=inputs=3:duration=longest:normalize=0"
-        merge_command = ["ffmpeg", "-hide_banner", "-i", vocal_path, "-i", inst_path, "-i", chorus_path, "-filter_complex", filter_str, "-codec:a", "libmp3lame", "-b:a", "192k", "-y", output_path]
+        merge_command = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-i", vocal_path, "-i", inst_path, "-i", chorus_path, "-filter_complex", filter_str, "-codec:a", "libmp3lame", "-b:a", "192k", "-y", output_path]
       else:
         filter_str = f"[0:a]volume={v_vol}[v]; [1:a]volume={i_vol}[i]; [v][i]amix=inputs=2:duration=longest:normalize=0"
-        merge_command = ["ffmpeg", "-hide_banner", "-i", vocal_path, "-i", inst_path, "-filter_complex", filter_str, "-codec:a", "libmp3lame", "-b:a", "192k", "-y", output_path]
+        merge_command = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-i", vocal_path, "-i", inst_path, "-filter_complex", filter_str, "-codec:a", "libmp3lame", "-b:a", "192k", "-y", output_path]
     else:
       filter_str = f"volume={v_vol}"
-      merge_command = ["ffmpeg", "-hide_banner", "-i", vocal_path, "-filter:a", filter_str, "-codec:a", "libmp3lame", "-b:a", "192k", "-y", output_path]
+      merge_command = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-i", vocal_path, "-filter:a", filter_str, "-codec:a", "libmp3lame", "-b:a", "192k", "-y", output_path]
 
     subprocess.run(merge_command, check=True)
     print("[MERGE] Done.")
@@ -226,7 +241,7 @@ if __name__ == '__main__':
     parser.add_argument('-algo', '--rvc-method', type=str, default='rmvpe', help='RVC METHOD')
     parser.add_argument('-s1', '--vocal-sound', type=int, default=100, help='VOCAL SOUND')
     parser.add_argument('-s2', '--other-sound', type=int, default=80, help='OTHER SOUND')
-    parser.add_argument('-chr', '--chorus-mode', type=int, default=1, choices=[0, 1, 2, 3], help='CHOURS SPERATE')
+    parser.add_argument('-chr', '--chorus-mode', type=int, default=0, choices=[0, 1, 2, 3], help='CHOURS SPERATE')
     
     # BooleanOptionalAction
     args = parser.parse_args()
@@ -325,7 +340,7 @@ if __name__ == '__main__':
       os.makedirs(keep_dir, exist_ok=True)
       if chorus_mode == 3:
         chorus_target = os.path.join(rvc_dir, 'rvc_chorus.mp3')
-      sep_song_v2(input_path, vocal_target, inst_target, chorus_target, keep_dir, output_dir, song_filename, pitch_other)
+      sep_song_v2(input_path, vocal_target, inst_target, chorus_target, keep_dir, output_dir, song_filename, pitch_other, chorus_mode)
     
     rvc_index_path = ''
     rvc_vocal_path = ''
