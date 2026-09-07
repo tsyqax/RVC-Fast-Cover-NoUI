@@ -65,63 +65,56 @@ python main.py --input "추론대상" --rvc-name "모델명" [ADDITIONAL_ARGUMEN
 
 </details>
 
-It is configured with a NoUI environment for use in the free Colab.  
-In addition, features have been slightly reduced but the focus has been placed on improving speed.
+If you want to use the unreleased bleeding-edge version, switch to the `canary` branch.  
+For a more stable preview build before the official release, please use the `last-test-before-release` branch.
 
----
+It is configured with a NoUI environment optimized for use in the free Google Colab.  
+While some non-essential features have been slightly streamlined, the core focus has been strictly placed on maximizing execution speed.
 
-## Project Goals
-* **Fast Inference**: Engineered to achieve the faster voice conversion speeds.
-* **Native Parallel Pipeline**: Implements asynchronous execution splitting to maximize GPU throughput while maintaining OOM safety.
-* **Streamlined Workflow**: A lightweight, one-click CLI environment enhanced with seperating-cached data reuse.
-
----
-
-## Performance Benchmarks (Colab: Tesla T4 GPU)
-※ This may be incorrect! Just take this as a reference only.
-
-* **Standard Track (3-Minute Audio)**: Completed in **29 seconds** (Both Parallel and Non-Parallel).
-* **Extended Track (10-Minute Large Audio)**: Parallel Mode finishes in **1 minute 10 seconds**, rather than Non-Parallel (1 minute 15 seconds).
+*⚠️ Warning: This environment has been extensively tuned and tested specifically for Google Colab. Run configurations on other native OS environments may require minor modifications.*
 
 ---
 
 ## How to Use
+### Google Colab Notebooks
+You can run the entire pipeline directly via these links: **[[한국어]](https://colab.research.google.com/drive/10iTH1SGxQK2TCDfzUpgke1UFBUJHGCnk)** **[[EN]](https://colab.research.google.com/drive/1ki84JkAFXUDIDmj2YHWRX52nhuJ5VOVO)**  
 
-### Google Colab Users
-You can run the entire pipeline directly via link: **[[한국어]](https://colab.research.google.com/drive/10iTH1SGxQK2TCDfzUpgke1UFBUJHGCnk)** **[[EN]](https://colab.research.google.com/drive/1ki84JkAFXUDIDmj2YHWRX52nhuJ5VOVO)**  
-*⚠️ Warning: When using YouTube Mode, colab environment is highly susceptible to temporary rate limits or restrictions.  
-Storing source assets directly via local file uploads or Google Drive paths is recommended.*
+*⚠️ Warning: When using YouTube Mode, the Colab environment is highly susceptible to temporary IP rate limits or blocklists. Storing source assets directly via local file uploads or Google Drive paths is strongly recommended.*
 
-### Local / Custom Hardware Users
-Download this repository and execute main.py using Python CLI:
+### Prerequisites & Installation
+- `pip install -r requirements.txt` (Personally, using **`uv`** is highly recommended for blazing-fast setups.)
+- `ffmpeg`: Required for core audio processing.
+- Clone this repository (`git clone ...`)
 
-```bash
-python main.py --input "path_to_audio.wav" --rvc-name "your_model" [ADDITIONAL_ARGUMENTS]
-```
-
-*⚠️ Warning: This environment has been extensively tuned and tested specifically inside Google Colab.  
-Running on native local OS configurations may require minor modifications to absolute file path routing or library bindings.*
+#### Model File Directory Structure
+Model files must be placed under the specific path format: `ROOT_DIR/models/YOUR_MODEL_NAME/`  
+Example: `DIR/models/myModel/model.pth` and `DIR/models/myModel/idx.index`   
 
 ---
 
-## CLI Arguments Reference (`main.py`)
+## main.py Execution
+```bash
+python main.py --input "SOURCE_PATH_OR_URL" --rvc-name "MODEL_NAME" [ADDITIONAL_ARGUMENTS]
+```
+
+### CLI Arguments Reference (`main.py`)
 
 | Argument | Shorthand | Type | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `--input` | `-in` | `str` | *Required* | Audio input source (URL or file path) |
-| `--rvc-name` | `-rvc` | `str` | *Required* | RVC model name to infer (Folder name) |
-| `--pitch-vocal` | `-p1` | `float` | `0` | Pitch adjustment applied exclusively to the vocal track (Unit: Samgyeopsal) |
-| `--pitch-other` | `-p2` | `float` | `0` | Pitch adjustment applied exclusively to the background instrumental track (Unit: Samgyeopsal) |
-| `--sep-mode` | `-sep` | `bool` | `True` | Bypasses audio separation if set to False |
+| `--input` | `-in` | `str` | *Required* | Audio input source (URL or local file path) |
+| `--rvc-name` | `-rvc` | `str` | *Required* | RVC model name for inference (Target folder name) |
+| `--pitch-vocal` | `-p1` | `float` | `0` | Pitch adjustment applied exclusively to the vocal track (Unit: sgs) |
+| `--pitch-other` | `-p2` | `float` | `0` | Pitch adjustment applied exclusively to the background instrumental track (Unit: sgs) |
+| `--sep-mode` | `-sep` | `bool` | `True` | Bypasses the audio separation step if set to False |
 | `--index-rate` | `-irate`| `float` | `0.75` | Index feature multiplier ratio used during inference |
 | `--rms-rate` | `-rms` | `float` | `0.8` | Determines how closely the output matches the original volume envelope |
 | `--rvc-method` | `-algo` | `str` | `'rmvpe'` | Core pitch extraction method algorithm (`'rmvpe'` or `'fcpe'`) |
-| `--vocal-sound` | `-s1` | `int` | `100` | Vocal volume level output size |
-| `--other-sound` | `-s2` | `int` | `80` | Background instrumental volume level output size |
-| `--parrel-mode` | `-pm` | `bool` | `True` | Toggles whether to use the parallel execution engine |
+| `--vocal-sound` | `-s1` | `int` | `100` | Output volume level for the processed vocal track |
+| `--other-sound` | `-s2` | `int` | `80` | Output volume level for the background instrumental track |
+| `--chorus-mode` | `-chr` | `[0, 1, 2, 3]` | `0` | Chorus separation mode routing logic |
 
-* 10 Samgyeopsal = 1 Octave
-(Samgeopsal is Korean word of Pork belly)
+* **10 sgs = 1 Octave = 12 Semitones**
+* *`sgs` is an abbreviation for "Samgyeopsal" (Korean grilled pork belly).*
 
 ---
 ### Thanks to [AICoverGen](https://github.com/SociallyIneptWeeb/AICoverGen)
