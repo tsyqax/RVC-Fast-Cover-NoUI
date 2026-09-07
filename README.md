@@ -116,5 +116,12 @@ python main.py --input "SOURCE_PATH_OR_URL" --rvc-name "MODEL_NAME" [ADDITIONAL_
 * **10 sgs = 1 Octave = 12 Semitones**
 * *`sgs` is an abbreviation for "Samgyeopsal" (Korean grilled pork belly).*
 
+#### Chorus Separation Modes (`--chorus-mode` / `-chr`)
+- `0`: **Disable** (No separation; infers directly from the main vocal).
+- `1`: **Separate with No Merge** (The chorus track is isolated and discarded/disappears).
+- `2`: **Separate & Merge into Instrumental** (The isolated chorus is merged directly into the background accompaniment).
+- `3`: **Separate, Infer & Merge into Vocal** (The isolated chorus undergoes RVC inference, then merges back into the vocal track).
+
+
 ---
 ### Thanks to [AICoverGen](https://github.com/SociallyIneptWeeb/AICoverGen)
