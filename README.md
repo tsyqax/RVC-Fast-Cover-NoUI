@@ -1,5 +1,7 @@
 # RVC-Fast-Cover-NoUI
 
+[FOR READING](https://github.com/tsyqax/RVC-Fast-Cover-NoUI/blob/canary/README.md)
+
 <details>
 <summary>한국어</summary>
 
