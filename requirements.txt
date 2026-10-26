@@ -18,4 +18,4 @@ transformers
 huggingface_hub
 soxr
 soundfile
-audio-separator[gpu]==0.16.2
+audio-separator[gpu]==0.7.1
