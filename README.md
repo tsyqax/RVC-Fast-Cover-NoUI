@@ -1,15 +1,9 @@
 # RVC-Fast-Cover-NoUI
 
-## [NOTE!!]
-At Now, I'm changing structure of this repo, so maybe this is unstable state.  
-
-[FOR READING](https://github.com/tsyqax/RVC-Fast-Cover-NoUI/blob/canary/README.md)
-
 <details>
 <summary>한국어</summary>
   
-아직 완성되지 않은 버전을 사용하고 싶다면 `canary` 브랜치를,  
-`canary`보다 안정적인 테스트 버전을 사용하고 싶다면 `last-test-before-release` 브랜치를 사용하세요.  
+아직 완성되지 않은 버전을 사용하고 싶다면 `canary` 브랜치를 사용하세요.  
 
 무료 코랩에서 사용하기 위한 NoUI 환경으로 구성되어 있습니다.  
 또한, 기능은 약간 축소되었으나 속도 향상에 초점을 맞추었습니다.  
@@ -71,7 +65,6 @@ python main.py --input "추론대상" --rvc-name "모델명" [ADDITIONAL_ARGUMEN
 </details>
 
 If you want to use the unreleased bleeding-edge version, switch to the `canary` branch.  
-For a more stable preview build before the official release, please use the `last-test-before-release` branch.
 
 It is configured with a NoUI environment optimized for use in the free Google Colab.  
 While some non-essential features have been slightly streamlined, the core focus has been strictly placed on maximizing execution speed.
