@@ -13,7 +13,7 @@ import sys
 
 now_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(now_dir)
-from infer.module.models import (
+from infer_pack.models import (
     SynthesizerTrnMs256NSFsid,
     SynthesizerTrnMs256NSFsid_nono,
     SynthesizerTrnMs768NSFsid,
