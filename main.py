@@ -161,9 +161,7 @@ def sep_song_v2(song_path, vocal_output_path, inst_output_path, chorus_out_path,
     os.remove(chorus_sound)
   else:
     os.remove(chorus_sound)
- 
-  songs[song_name] = song_id
-  songsave(songs)
+
   print(f"[SEP] Separation is Done.")
 
 def pitch_song_new(input_pitch, output_pitch, pitch_sgs, final_output):
@@ -343,6 +341,10 @@ if __name__ == '__main__':
         chorus_target = os.path.join(rvc_dir, 'rvc_chorus.mp3')
       sep_song_v2(input_path, vocal_target, inst_target, chorus_target, keep_dir, output_dir, song_filename, pitch_other, chorus_mode)
     
+    if sep_mode is True:
+      songs[song_name] = song_id
+      songsave(songs)
+    
     rvc_index_path = ''
     rvc_vocal_path = ''
     rvc_models_dir = os.path.join(os.getcwd(), 'models')
@@ -354,18 +356,15 @@ if __name__ == '__main__':
 
     for filename in os.listdir(rvc_models_path):
       if filename.endswith(".pth"):
-        rvc_model_path = os.path.join(rvc_models_path, filename)
+        rvc_vocal_path = os.path.join(rvc_models_path, filename)
         break
     
-    rvc_song(rvc_index_path, rvc_model_path, args.index_rate, vocal_target, rvc_output_path, pitch_vocal * 1.2, args.rvc_method, 3, args.rms_rate, 0.33, 128)
+    rvc_song(rvc_index_path, rvc_vocal_path, args.index_rate, vocal_target, rvc_output_path, pitch_vocal * 1.2, args.rvc_method, 3, args.rms_rate, 0.33, 128)
     
     if (chorus_mode == 3):
-      rvc_song(rvc_index_path, rvc_model_path, args.index_rate, chorus_target, rvc_chorus_path, pitch_vocal * 1.2, args.rvc_method, 3, args.rms_rate, 0.33, 128)
+      rvc_song(rvc_index_path, rvc_vocal_path, args.index_rate, chorus_target, rvc_chorus_path, pitch_vocal * 1.2, args.rvc_method, 3, args.rms_rate, 0.33, 128)
       chorus_target = rvc_chorus_path
     
     new_merge_song(rvc_output_path, inst_target, chorus_target, output_path2, vocal_sound, other_sound, sep_mode, chorus_mode)
 
-    if sep_mode is True:
-      songs[song_name] = song_id
-      songsave(songs)
     print(f'DONE!!\nSAVED: {output_path2}')
