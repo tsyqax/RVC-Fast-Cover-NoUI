@@ -13,14 +13,14 @@ import sys
 
 now_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(now_dir)
-from infer_pack.models import (
+from infer.module.models import (
     SynthesizerTrnMs256NSFsid,
     SynthesizerTrnMs256NSFsid_nono,
     SynthesizerTrnMs768NSFsid,
     SynthesizerTrnMs768NSFsid_nono,
 )
 from my_utils import load_audio
-from vc_infer_pipeline import VC
+from infer.vc.pipeline import Pipeline
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -217,67 +217,15 @@ def rvc_infer(index_path, index_rate, input_path, output_path, pitch_change, f0_
   if f0_method not in ['rmvpe', 'fcpe']:
     print("Warning: f0 method is not supported. Using 'rmvpe'.")
     f0_method = 'rmvpe'
+  
+  print(f"[INFER] Starting inference using model: {os.path.basename(rvc_model_path)}")
+  print(f" > Target: {os.path.basename(output_path)} | Pitch: {pitch_change:+} sgs | F0: {f0_method} (Idx: {index_rate}) | SR: {tgt_sr}Hz")
 
   audio = load_audio(input_path, 16000)
   times = [0, 0, 0]
-
-  if parrel_mode:
-    print("PARREL MODE ACTIVATED.")
-
-    if_f0 = cpt.get('f0', 1)
-
-    if len(audio) / 16000 <= 60:
-      print("Audio is shorter than 1 minute. Forcing single worker to avoid overhead.")
-      num_workers = 1
-    else:
-      try:
-        device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
-        prop = torch.cuda.get_device_properties(device)
-        total_vram = prop.total_memory / 1024 / 1024 # MB
-        
-        model_size_mb = 0
-        for param_name, param_tensor in cpt["weight"].items():
-          model_size_mb += param_tensor.numel() * param_tensor.element_size() / 1024 / 1024
-        
-        hubert_size_mb = 0
-        for param in hubert_model.parameters():
-          hubert_size_mb += param.numel() * param.element_size() / 1024 / 1024
-
-        model_size_mb += hubert_size_mb
-        #model_size_mb += os.path.getsize(hubert_model_path) / 1024 / 1024
-        
-        vram_buffer_mb = 768
-        num_workers = int((total_vram - vram_buffer_mb) / model_size_mb)
-        num_workers = max(1, num_workers)
-        num_workers = min(num_workers, cpu_count())
-        print(f"Optimal number of workers: {num_workers} (Total VRAM: {total_vram:.2f}MB, Estimated Model size: {model_size_mb:.2f}MB)")
-      except Exception as e:
-        print(f"Could not determine VRAM. Falling back to CPU count. Error: {e}")
-        num_workers = cpu_count()
-
-    chunk_length = len(audio) // num_workers
-    chunks = [audio[i * chunk_length:(i + 1) * chunk_length] for i in range(num_workers)]
-    if len(audio) % num_workers != 0:
-      chunks[-1] = np.concatenate((chunks[-1], audio[num_workers * chunk_length:]))
-
-    args_list = [
-      (hubert_model, net_g, 0, chunk, times, pitch_change, f0_method, index_path, index_rate, if_f0, tgt_sr, 0, rms_mix_rate, version, protect)
-      for chunk in chunks
-    ]
-
-    def run_parallel_thread(idx):
-      current_args = args_list[idx]
-      return vc.pipeline(*current_args)
-
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-      processed_chunks = list(executor.map(run_parallel_thread, range(num_workers)))
-      
-    audio_opt = np.concatenate(processed_chunks)
-    
-  else:
-    if_f0 = cpt.get('f0', 1)
-    p_len = audio.shape[0] // vc.window 
-    audio_opt = vc.pipeline(hubert_model, net_g, 0, audio, times, pitch_change, f0_method, index_path, index_rate, if_f0, tgt_sr, 0, rms_mix_rate, version, protect)
+  
+  if_f0 = cpt.get('f0', 1)
+  p_len = audio.shape[0] // vc.window 
+  audio_opt = vc.pipeline(hubert_model, net_g, 0, audio, times, pitch_change, f0_method, index_path, index_rate, if_f0, tgt_sr, 0, rms_mix_rate, version, protect)
 
   wavfile.write(output_path, tgt_sr, audio_opt)
-
