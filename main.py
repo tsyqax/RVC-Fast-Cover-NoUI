@@ -68,39 +68,6 @@ def str2bool(v):
     raise argparse.ArgumentTypeError('Boolean value expected.')
 
 available_prd = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-imload = None
-
-def loadUVR(model_name):
-  if imload is not None:
-    unloadUVR()
-  
-  model_path = os.path.join("assets", "mdx", "models", "MDXNet",  f"{model_name}.onnx")
-  if not os.path.exists(model_path):
-    print("Model not found, skip")
-    return None
-
-  imload = ort.InferenceSession(model_path, providers=available_prd)
-  print(f"[UVR] Load Successfully: {model_name}")
-  return imload
-
-def unloadUVR(model_name):
-  if imload is not None:
-    del imload
-    imload = None
-  
-  gc.collect()
-  if torch.cuda.is_available():
-    torch.cuda.empty_cache()
-    torch.cuda.ipc_collect()
-  elif hasattr(torch, 'mps') and torch.mps.is_available():
-    torch.mps.empty_cache()
-  
-  print("[UVR] Unload Successfully.")
-
-def switchUVR(unload_model_name, load_model_name):
-  print(f"[UVR] Model Switch: {unload_model_name} ➔ {load_model_name}")
-  unloadUVR()
-  loadUVR(load_model_name)
 
 # input / songname.mp3
 
