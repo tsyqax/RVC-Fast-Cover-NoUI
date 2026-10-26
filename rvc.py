@@ -20,7 +20,7 @@ from infer_pack.models import (
     SynthesizerTrnMs768NSFsid_nono,
 )
 from my_utils import load_audio
-from infer.vc.pipeline import Pipeline
+from vc_infer_pipeline import VC
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
