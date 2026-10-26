@@ -17,5 +17,4 @@ torchaudio==2.6.0+cu118
 transformers
 huggingface_hub
 soxr
-soundfile
 audio-separator[gpu]
