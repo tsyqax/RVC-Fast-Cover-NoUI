@@ -9,6 +9,7 @@ import librosa
 import soundfile as sf
 import numpy as np
 import os
+import re
 import math
 import shutil
 import onnxruntime as ort
@@ -18,6 +19,7 @@ from pydub import AudioSegment
 from pytubefix import YouTube
 from pytubefix.cli import on_progress
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlparse, parse_qs
 from audio_separator.separator import Separator
 
 from rvc import Config, get_vc, rvc_infer
@@ -110,6 +112,12 @@ def switchUVR(unload_model_name, load_model_name):
 
 # output format = output/ song_id / song_name (rvc model).mp3
 
+def pick_stem(files, stem):
+  tag = lambda f: (re.findall(r"\(([^)]*)\)", os.path.basename(f)) or [""])[-1].lower()
+  picked = next((f for f in files if tag(f) == stem.lower()), files[0])
+  other = next(f for f in files if f != picked)
+  return picked, other
+
 def sep_song_v2(song_path, vocal_output_path, inst_output_path, chorus_out_path, keep_dir, final_output_dir, song_filename, pitch_other, chorus_mode=0):
   print(f"[SEP] Separation started, Mode: {chorus_mode}")
   MAIN_SEP_MODEL = "UVR-MDX-NET-Voc_FT"
@@ -123,7 +131,7 @@ def sep_song_v2(song_path, vocal_output_path, inst_output_path, chorus_out_path,
   # 1st separate
   #separator.output_names = {"Vocals": "sep_vocal_mixed", "Instrumental": "sep_inst"}
   separator.load_model(model_filename=f"{MAIN_SEP_MODEL}.onnx")
-  vocal_mixed, instis = separator.separate(song_path)
+  vocal_mixed, instis = pick_stem(separator.separate(song_path), "Vocals")
   
   vocal_mixed = os.path.join(sep_path, vocal_mixed)
   instis = os.path.join(sep_path, instis)
@@ -141,7 +149,7 @@ def sep_song_v2(song_path, vocal_output_path, inst_output_path, chorus_out_path,
   # 2st separate
   #separator.output_names = {"Vocals": "sep_vocal", "Instrumental": "sep_chorus"}
   separator.load_model(model_filename=f"{CHORUS_SEP_MODEL}.onnx")
-  main_vocal, chorus_sound = separator.separate(vocal_mixed)
+  main_vocal, chorus_sound = pick_stem(separator.separate(vocal_mixed), "Vocals")
   os.remove(vocal_mixed)
   
   main_vocal = os.path.join(sep_path, main_vocal)
@@ -178,13 +186,14 @@ def pitch_song_new(input_pitch, output_pitch, pitch_sgs, final_output):
 
   try:
     pitch_factor = 2 ** (pitch_sgs / 10)
-    filter_string = f"asetrate=44100*{pitch_factor},atempo=1/{pitch_factor}"
+    filter_string = f"asetrate=44100*{pitch_factor},atempo=1/{pitch_factor},aresample=44100"
     pitch_command = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-i", input_pitch, "-filter:a", filter_string, "-b:a", "192k", "-y", output_pitch]
     subprocess.run(pitch_command, check=True)
     shutil.copy2(output_pitch, final_output)
     print(f"[PITCH] Changing to {pitch_sgs} sgs is done.")
   except Exception as e:
     print(f"[PITCH] Error, due to {e}")
+    raise
 
 # Refactor 2
 def rvc_song(rvc_index_path, rvc_model_path, index_rate, input_path, output_path, pitch_change, f0_method, filter_radius, rms_mix_rate, protect, crepe_hop_length):
@@ -207,17 +216,18 @@ def new_merge_song(vocal_path, inst_path, chorus_path, output_path, vocal_sound,
   
   try:
     v_vol = vocal_sound / 100
-    i_vol = other_sound / 100
+    i_vol = other_sound / 100 * 0.8 # inst trim
+    c_vol = i_vol * 1.05
 
     if sep_mode is True and other_sound > 0:
       if use_chorus:
-        filter_str = f"[0:a]volume={v_vol}[v]; [1:a]volume={i_vol}[i]; [2:a]volume={i_vol}[c]; [v][i][c]amix=inputs=3:duration=longest:normalize=0"
+        filter_str = f"[0:a]volume={v_vol}[v]; [1:a]volume={i_vol}[i]; [2:a]volume={c_vol}[c]; [v][i][c]amix=inputs=3:duration=longest:normalize=0,alimiter=limit=0.97:level=0"
         merge_command = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-i", vocal_path, "-i", inst_path, "-i", chorus_path, "-filter_complex", filter_str, "-codec:a", "libmp3lame", "-b:a", "192k", "-y", output_path]
       else:
-        filter_str = f"[0:a]volume={v_vol}[v]; [1:a]volume={i_vol}[i]; [v][i]amix=inputs=2:duration=longest:normalize=0"
+        filter_str = f"[0:a]volume={v_vol}[v]; [1:a]volume={i_vol}[i]; [v][i]amix=inputs=2:duration=longest:normalize=0,alimiter=limit=0.97:level=0"
         merge_command = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-i", vocal_path, "-i", inst_path, "-filter_complex", filter_str, "-codec:a", "libmp3lame", "-b:a", "192k", "-y", output_path]
     else:
-      filter_str = f"volume={v_vol}"
+      filter_str = f"volume={v_vol},alimiter=limit=0.97:level=0"
       merge_command = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-i", vocal_path, "-filter:a", filter_str, "-codec:a", "libmp3lame", "-b:a", "192k", "-y", output_path]
 
     subprocess.run(merge_command, check=True)
@@ -225,6 +235,7 @@ def new_merge_song(vocal_path, inst_path, chorus_path, output_path, vocal_sound,
 
   except Exception as e:
     print(f"[MERGE] Error, due to {e}")
+    raise
 
 # Refactor 260902
 if __name__ == '__main__':
@@ -274,13 +285,8 @@ if __name__ == '__main__':
     # input (copy)
     if 'https://' in args.input or 'http://' in args.input: # yt
       try:
-        song_name = args.input.split('/')[-1]
-        if '=' in song_name:
-          song_name = song_name.split('=')[-1]
-          if '?' in song_name:
-            song_name = song_name.split('?')[-2]
-        else:
-          song_name = song_name
+        yt_url = urlparse(args.input)
+        song_name = parse_qs(yt_url.query).get('v', [yt_url.path.split('/')[-1]])[0]
       except:
         song_name = 'default_id'
       
@@ -293,16 +299,16 @@ if __name__ == '__main__':
     else: # drive
       song_file = os.path.basename(args.input)
       try:
-        song_name = os.path.basename(args.input).split('.')[0]
+        song_name = os.path.splitext(os.path.basename(args.input))[0]
       except:
         song_name = song_file
       song_ext = os.path.basename(args.input).split('.')[-1]
       shutil.copy2(args.input, f'input/{song_file}')
-    song_filename = os.path.basename(args.input).split('.')[0]
+    song_filename = song_name
     
     try:
       song_id = songs[str(song_name)]
-      exist_check = True
+      exist_check = os.path.exists(os.path.join(os.getcwd(), 'keep', song_id, 'sep_inst.mp3'))
       print(f"found Key: {song_id}")
     except KeyError:
       song_id = str(uuid.uuid4()).split('-')[0]
@@ -320,7 +326,7 @@ if __name__ == '__main__':
 
     output_path2 = os.path.join(output_dir, f"{song_name} ({args.rvc_name}).mp3")
     
-    if exist_check is True:
+    if exist_check is True and sep_mode is True:
       print('SEPERATE PASS..')
       print(f"CHORUS_MODE: {chorus_mode}")
       if chorus_mode == 3:
