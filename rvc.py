@@ -165,7 +165,6 @@ def worker_initializer(model_path, hubert_path, device, is_half):
         traceback.print_exc()
         raise
 
-'''
 def load_hubert(device, is_half, model_path):
     models, _, task = checkpoint_utils.load_model_ensemble_and_task([model_path], suffix='')
     hubert = models[0]
@@ -178,7 +177,6 @@ def load_hubert(device, is_half, model_path):
 
     hubert.eval()
     return hubert
-'''
 
 def get_vc(device, is_half, config, model_path):
     cpt = torch.load(model_path, map_location='cpu')
