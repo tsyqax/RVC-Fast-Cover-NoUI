@@ -6,14 +6,12 @@ import argparse
 import json
 import gc
 import librosa
-import soundfile as sf
 import numpy as np
 import os
 import re
 import math
 import shutil
 import onnxruntime as ort
-import soundfile as sf
 
 from pydub import AudioSegment
 from pytubefix import YouTube
