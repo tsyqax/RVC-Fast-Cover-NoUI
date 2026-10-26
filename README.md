@@ -1,5 +1,8 @@
 # RVC-Fast-Cover-NoUI
 
+## [NOTE!!]
+At Now, I'm changing structure of this repo, so maybe this is unstable state.  
+
 [FOR READING](https://github.com/tsyqax/RVC-Fast-Cover-NoUI/blob/canary/README.md)
 
 <details>
