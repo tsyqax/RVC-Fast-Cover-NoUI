@@ -19,3 +19,4 @@ huggingface_hub
 soxr
 soundfile
 audio-separator[gpu]
+onnxruntime-gpu==1.18.1
