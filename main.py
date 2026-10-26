@@ -319,6 +319,8 @@ if __name__ == '__main__':
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(merge_dir, exist_ok=True)
     os.makedirs(rvc_dir, exist_ok=True)
+
+    output_path2 = os.path.join(output_dir, f"{song_name} ({args.rvc_name}).mp3")
     
     if exist_check is True:
       print('SEPERATE PASS..')
@@ -356,7 +358,6 @@ if __name__ == '__main__':
         rvc_model_path = os.path.join(rvc_models_path, filename)
         break
     
-    output_path2 = os.path.join(output_dir, f"{song_name} ({args.rvc_name}).mp3")
     rvc_song(rvc_index_path, rvc_model_path, args.index_rate, vocal_target, rvc_output_path, pitch_vocal * 1.2, args.rvc_method, 3, args.rms_rate, 0.33, 128)
     
     if (chorus_mode == 3):
