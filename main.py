@@ -336,7 +336,6 @@ if __name__ == '__main__':
   
     elif sep_mode is False:
       print("SEPERATE FALSE..")
-      rvc_output_path = output_path2
       vocal_target = input_path
     else:
       os.makedirs(keep_dir, exist_ok=True)
